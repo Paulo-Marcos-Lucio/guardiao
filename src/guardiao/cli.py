@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import sys
 from enum import Enum
@@ -227,9 +228,15 @@ def _staged_files() -> list[Path]:
     ]
 
 
+def _force_utf8() -> None:
+    """Evita UnicodeEncodeError no console legado do Windows (cp1252)."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(ValueError, OSError):
+                reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> None:
+    _force_utf8()
     app()
-
-
-if __name__ == "__main__":  # pragma: no cover
-    sys.exit(0)
