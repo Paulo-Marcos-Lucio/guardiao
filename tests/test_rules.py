@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import pytest
+
+from guardiao.core.engine import Scanner
+from guardiao.rules.definitions import looks_like_placeholder
+from guardiao.rules.registry import all_rules, rules_by_id
 from tests.conftest import (
     AWS_KEY_ID,
     DB_URI,
@@ -9,10 +13,6 @@ from tests.conftest import (
     JWT,
     PRIVATE_KEY_HEADER,
 )
-
-from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import looks_like_placeholder
-from guardiao.rules.registry import all_rules, rules_by_id
 
 
 def _rule_ids(text: str) -> set[str]:

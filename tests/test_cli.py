@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tests.conftest import AWS_KEY_ID
 from typer.testing import CliRunner
 
 from guardiao import __version__
 from guardiao.cli import app
+from tests.conftest import AWS_KEY_ID
 
 runner = CliRunner()
 

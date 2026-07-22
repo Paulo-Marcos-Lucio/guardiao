@@ -5,9 +5,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from tests.conftest import AWS_KEY_ID
 
 from guardiao.core.engine import Scanner
+from tests.conftest import AWS_KEY_ID
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git não disponível")
 

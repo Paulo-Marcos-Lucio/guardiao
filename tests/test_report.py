@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tests.conftest import AWS_KEY_ID, DB_URI, GH_TOKEN, GOOGLE_KEY
-
 from guardiao.core.engine import Scanner
 from guardiao.report.json_report import to_json
 from guardiao.report.sarif import to_sarif
+from tests.conftest import AWS_KEY_ID, DB_URI, GH_TOKEN, GOOGLE_KEY
 
 
 def test_json_never_leaks_raw_secret(planted_dir: Path) -> None:
