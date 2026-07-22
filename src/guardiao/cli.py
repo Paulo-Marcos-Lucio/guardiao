@@ -16,11 +16,12 @@ from guardiao import __version__
 from guardiao.core.baseline import apply_baseline, load_baseline, save_baseline
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner, ScanResult
-from guardiao.core.models import Severity
+from guardiao.core.models import Finding, Severity
 from guardiao.report import console as console_report
 from guardiao.report.json_report import to_json
 from guardiao.report.sarif import to_sarif
 from guardiao.rules.registry import all_rules
+from guardiao.sources.githistory import GitError
 
 app = typer.Typer(
     add_completion=False,
@@ -140,7 +141,11 @@ def scan(
 
     if git_history:
         repo = targets[0]
-        result = scanner.scan_git_history(repo)
+        try:
+            result = scanner.scan_git_history(repo)
+        except GitError as exc:
+            err_console.print(f"[red]Não foi possível ler o histórico Git:[/] {exc}")
+            raise typer.Exit(2) from exc
     else:
         result = scanner.scan_paths(targets)
 
@@ -190,14 +195,24 @@ def pre_commit(
         FailOn.medium, "--fail-on", help="Severidade que bloqueia o commit."
     ),
 ) -> None:
-    """Varre apenas os arquivos em stage — para uso como hook de pre-commit."""
-    staged = _staged_files()
-    if not staged:
+    """Varre o conteúdo **em stage** — para uso como hook de pre-commit."""
+    paths = _staged_paths()
+    if not paths:
         typer.echo("Nada em stage. Nada a verificar.")
         raise typer.Exit(0)
 
     scanner = Scanner()
-    result = scanner.scan_paths(staged)
+    findings: list[Finding] = []
+    scanned = 0
+    for path in paths:
+        content = _staged_content(path)
+        if content is None:
+            continue
+        scanned += 1
+        findings.extend(scanner.scan_text(path, content))
+    findings.sort(key=lambda f: (-f.severity.rank, f.location.path, f.location.line))
+    result = ScanResult(findings=findings, units_scanned=scanned)
+
     if result.findings:
         console_report.render(result)
         err_console.print(
@@ -205,14 +220,30 @@ def pre_commit(
             "Remova/rotacione, ou marque a linha com [bold]# guardiao:allow[/] se for falso-positivo."
         )
     else:
-        typer.echo(f"✓ {len(staged)} arquivo(s) em stage sem segredos.")
+        typer.echo(f"✓ {scanned} arquivo(s) em stage sem segredos.")
     raise typer.Exit(_exit_code(result, fail_on))
 
 
-def _staged_files() -> list[Path]:
+def _staged_paths() -> list[str]:
+    """Caminhos em stage — inclui renomeados (ACMR) e nomes com caracteres especiais (-z)."""
+    out = _git("diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR")
+    if out is None:
+        return []
+    return [p for p in out.split("\x00") if p]
+
+
+def _staged_content(path: str) -> str | None:
+    """Conteúdo do arquivo **como está em stage** (índice), não o do working tree."""
+    raw = _git_bytes("show", f":{path}")
+    if raw is None or b"\x00" in raw[:8192]:
+        return None
+    return raw.decode("utf-8", errors="replace")
+
+
+def _git(*args: str) -> str | None:
     try:
         proc = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+            ["git", *args],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -220,12 +251,16 @@ def _staged_files() -> list[Path]:
             check=False,
         )
     except (OSError, ValueError):  # pragma: no cover - git ausente
-        return []
-    if proc.returncode != 0:
-        return []
-    return [
-        Path(line) for line in proc.stdout.splitlines() if line.strip() and Path(line).is_file()
-    ]
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _git_bytes(*args: str) -> bytes | None:
+    try:
+        proc = subprocess.run(["git", *args], capture_output=True, check=False)
+    except (OSError, ValueError):  # pragma: no cover - git ausente
+        return None
+    return proc.stdout if proc.returncode == 0 else None
 
 
 def _force_utf8() -> None:

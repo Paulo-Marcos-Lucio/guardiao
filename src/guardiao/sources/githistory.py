@@ -2,8 +2,11 @@
 
 Remover um segredo do código não o remove do histórico — ele continua acessível
 em commits antigos. Esta fonte varre **todos os blobs** já existentes no
-repositório (via ``git rev-list --objects --all``), justamente onde segredos
-esquecidos costumam permanecer.
+repositório, justamente onde segredos esquecidos costumam permanecer.
+
+Desempenho: um único ``git cat-file --batch --batch-all-objects`` transmite o
+conteúdo de todos os objetos por streaming, em vez de dois subprocessos por
+objeto — ordens de magnitude mais rápido em repositórios grandes.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 
 class GitError(RuntimeError):
@@ -32,34 +36,76 @@ def is_git_repo(repo: Path) -> bool:
 def iter_history_blobs(repo: Path, *, max_bytes: int = 5_000_000) -> Iterator[Blob]:
     """Itera pelos blobs versionados em qualquer ponto da história."""
     repo = Path(repo)
+
+    # 1) Mapa sha->path (o primeiro caminho visto para cada blob). Uma chamada só.
     listing = _run(repo, "rev-list", "--objects", "--all")
     if not listing.ok:
         raise GitError(listing.err.strip() or "git rev-list falhou")
-
-    seen: set[str] = set()
+    paths: dict[str, str] = {}
     for line in listing.out.splitlines():
-        parts = line.split(" ", 1)
-        if len(parts) != 2:
-            continue  # commits/trees sem path
-        sha, path = parts[0], parts[1]
-        if sha in seen or not path:
-            continue
-        seen.add(sha)
+        sha, _, path = line.partition(" ")
+        if path:
+            paths.setdefault(sha, path)
+    if not paths:
+        return
 
-        kind = _run(repo, "cat-file", "-t", sha)
-        if not kind.ok or kind.out.strip() != "blob":
-            continue
+    # 2) Um processo persistente streamando todos os objetos.
+    try:
+        proc = subprocess.Popen(
+            ["git", "cat-file", "--batch", "--batch-all-objects", "--buffer"],
+            cwd=str(repo),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, ValueError) as exc:  # pragma: no cover - git ausente
+        raise GitError(str(exc)) from exc
 
-        content = _run_bytes(repo, "cat-file", "blob", sha)
-        if content is None or len(content) > max_bytes:
-            continue
-        if b"\x00" in content[:8192]:
-            continue
-        yield Blob(sha=sha[:12], path=path, text=content.decode("utf-8", errors="replace"))
+    stdout = proc.stdout
+    if stdout is None:  # pragma: no cover - defensivo
+        raise GitError("git cat-file não abriu stdout")
+
+    try:
+        while True:
+            header = stdout.readline()
+            if not header:
+                break
+            parts = header.decode("utf-8", "replace").split()
+            if len(parts) < 3:
+                continue  # "<sha> missing" ou linha inesperada
+            sha, otype, size_str = parts[0], parts[1], parts[2]
+            try:
+                size = int(size_str)
+            except ValueError:  # pragma: no cover - saída inesperada
+                continue
+            content = _read_exact(stdout, size)
+            stdout.read(1)  # newline após o conteúdo
+            if otype != "blob":
+                continue
+            blob_path = paths.get(sha)
+            if blob_path is None or size > max_bytes:
+                continue
+            if b"\x00" in content[:8192]:
+                continue
+            yield Blob(sha=sha[:12], path=blob_path, text=content.decode("utf-8", errors="replace"))
+    finally:
+        stdout.close()
+        proc.wait()
+
+
+def _read_exact(stream: IO[bytes], n: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = n
+    while remaining > 0:
+        chunk = stream.read(remaining)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
 
 
 # --------------------------------------------------------------------------- #
-# helpers de subprocess
+# helper de subprocess (texto)
 # --------------------------------------------------------------------------- #
 
 
@@ -84,18 +130,3 @@ def _run(repo: Path, *args: str) -> _Result:
     except (OSError, ValueError) as exc:  # pragma: no cover - git ausente
         return _Result(False, "", str(exc))
     return _Result(proc.returncode == 0, proc.stdout, proc.stderr)
-
-
-def _run_bytes(repo: Path, *args: str) -> bytes | None:
-    try:
-        proc = subprocess.run(
-            ["git", *args],
-            cwd=str(repo),
-            capture_output=True,
-            check=False,
-        )
-    except (OSError, ValueError):  # pragma: no cover - git ausente
-        return None
-    if proc.returncode != 0:
-        return None
-    return proc.stdout

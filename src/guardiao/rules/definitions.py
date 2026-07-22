@@ -155,6 +155,18 @@ def default_rules() -> list[Rule]:
             recommendation="Valor de alta entropia atribuído a uma chave sensível. " + _ROTATE,
         ),
         compile_rule(
+            "high-entropy-string",
+            "String de alta entropia (possível segredo)",
+            Severity.MEDIUM,
+            r"(?<![A-Za-z0-9+/=_-])([A-Za-z0-9+/=_-]{24,120})(?![A-Za-z0-9+/=_-])",
+            secret_group=1,
+            category="entropy",
+            cwe="CWE-798",
+            owasp="A05:2021 Security Misconfiguration",
+            recommendation="Cadeia longa e aleatória com cara de segredo. Confirme se não é "
+            "credencial/chave; se for, " + _ROTATE,
+        ),
+        compile_rule(
             "cpf",
             "CPF (dado pessoal — LGPD)",
             Severity.LOW,
