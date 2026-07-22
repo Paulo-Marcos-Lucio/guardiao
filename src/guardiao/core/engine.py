@@ -94,6 +94,11 @@ class Scanner:
             if not hits:
                 continue
 
+            # 1b) Dedup por trecho sobreposto: o MESMO segredo casado por várias regras
+            #     (ex.: github-token HIGH + high-entropy MEDIUM) vira um achado só — a regra
+            #     mais específica/severa. Evita ruído de "achado dobrado" no relatório.
+            hits = _dedupe_overlapping(hits)
+
             # 2) Um preview compartilhado que mascara TODOS os segredos da linha —
             #    impede que um segundo segredo na mesma linha vaze cru.
             spans = [(start, start + len(secret), secret) for (_, start, secret, _) in hits]
@@ -141,6 +146,24 @@ class Scanner:
             units += 1
             findings.extend(self.scan_text(blob.path, blob.text, commit=blob.sha))
         return _finalize(findings, units, started)
+
+
+def _dedupe_overlapping(
+    hits: list[tuple[Rule, int, str, float]],
+) -> list[tuple[Rule, int, str, float]]:
+    """Mantém, entre matches que cobrem o mesmo trecho, o de maior severidade — e, no
+    empate, a regra específica antes da genérica de entropia."""
+    if len(hits) < 2:
+        return hits
+    ordered = sorted(hits, key=lambda h: (-h[0].severity.rank, h[0].category == "entropy", h[0].id))
+    kept: list[tuple[Rule, int, str, float]] = []
+    for hit in ordered:
+        _, start, secret, _ = hit
+        a1, a2 = start, start + len(secret)
+        if any(a1 < ks + len(ksec) and ks < a2 for (_, ks, ksec, _) in kept):
+            continue  # sobrepõe um já mantido (mais severo/específico)
+        kept.append(hit)
+    return kept
 
 
 def _is_allowlisted(line: str) -> bool:

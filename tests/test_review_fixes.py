@@ -162,3 +162,18 @@ def test_fp_fixes_preserve_recall() -> None:
     }
     for rule_id, line in cases.items():
         assert rule_id in _ids(line), rule_id
+
+
+def test_overlapping_findings_deduped_to_most_specific() -> None:
+    # GITHUB_TOKEN casa github-token (HIGH) e seria high-entropy (MEDIUM) — vira 1 achado só.
+    line = 'GITHUB_TOKEN = "ghp_9zQ2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwX"'
+    findings = list(Scanner().scan_text("x.py", line))
+    assert len(findings) == 1
+    assert findings[0].rule_id == "github-token"
+
+
+def test_two_distinct_secrets_on_line_both_kept() -> None:
+    line = f'a = "{AWS_KEY_ID}"; b = "{GH_TOKEN}"'  # spans distintos → não deduplica
+    rules = {f.rule_id for f in Scanner().scan_text("x.py", line)}
+    assert "aws-access-key-id" in rules
+    assert "github-token" in rules
