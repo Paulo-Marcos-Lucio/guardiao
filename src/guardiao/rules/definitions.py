@@ -14,6 +14,34 @@ from guardiao.rules.base import Rule, compile_rule
 
 _ROTATE = "Revogue/rotacione a credencial AGORA (o histórico Git é público mesmo após remoção), remova do código e injete via variável de ambiente ou cofre de segredos."
 
+# Contexto que precisa estar PRESENTE na linha para a regra genérica de entropia disparar.
+# Sem isso, "alta entropia" pega hash de lockfile, SHA de commit, UUID e blob base64 — ruído.
+# Regras específicas (AWS, GitHub, Stripe, chave privada...) NÃO dependem deste contexto.
+SECRET_CONTEXT: tuple[str, ...] = (
+    "secret",
+    "token",
+    "key",
+    "keys",
+    "password",
+    "passwd",
+    "passphrase",
+    "pwd",
+    "pass",
+    "api",
+    "apikey",
+    "access",
+    "auth",
+    "authorization",
+    "authtoken",
+    "oauth",
+    "credential",
+    "cred",
+    "bearer",
+    "private",
+    "encrypt",
+    "encryption",
+)
+
 
 def default_rules() -> list[Rule]:
     return [
@@ -161,6 +189,7 @@ def default_rules() -> list[Rule]:
             r"(?<![A-Za-z0-9+/=_-])([A-Za-z0-9+/=_-]{24,120})(?![A-Za-z0-9+/=_-])",
             secret_group=1,
             category="entropy",
+            keywords=SECRET_CONTEXT,  # só dispara perto de palavra de contexto de segredo
             cwe="CWE-798",
             owasp="A05:2021 Security Misconfiguration",
             recommendation="Cadeia longa e aleatória com cara de segredo. Confirme se não é "
@@ -225,6 +254,70 @@ KNOWN_FAKE_SECRETS: frozenset[str] = frozenset(
 )
 
 _REPEATED = re.compile(r"^(.)\1{7,}$")
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_GIT_SHA = re.compile(r"^[0-9a-fA-F]{40}$")  # SHA-1 de commit / action pinada
+
+# Credencial embutida em URL de EXEMPLO/teste (docs, fixtures de parser) — não é vazamento real.
+_URL_CRED = re.compile(
+    r"^[a-z][a-z0-9+.\-]*://(?P<user>[^:@/\s]+):(?P<pw>[^@/\s]+)@(?P<host>[^/:\s]+)",
+    re.IGNORECASE,
+)
+_EXAMPLE_HOST = re.compile(
+    r"^(?:localhost"
+    r"|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1|\[::1\]"
+    r"|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+"
+    r"|example\.(?:com|org|net)"
+    r"|.+\.(?:example|test|local|localhost|invalid))$",
+    re.IGNORECASE,
+)
+_PLACEHOLDER_USERS = frozenset({"user", "username", "test", "foo", "bar", "me"})
+_PLACEHOLDER_PWS = frozenset(
+    {"pass", "password", "passwd", "secret", "changeme", "test", "foo", "bar", "123456"}
+)
+
+
+# Senhas/segredos fracos ou de exemplo canônicos — valor completo, não vazam nada real.
+_WEAK_EXAMPLE_VALUES: frozenset[str] = frozenset(
+    {
+        "password",
+        "password123",
+        "passw0rd",
+        "p@ssw0rd",
+        "mypassword",
+        "secret",
+        "secret123",
+        "supersecret",
+        "topsecret",
+        "test",
+        "test123",
+        "admin",
+        "admin123",
+        "changeme",
+        "letmein",
+        "hunter2",
+        "qwerty",
+        "123456",
+        "12345678",
+    }
+)
+
+
+def _is_example_url_cred(secret: str) -> bool:
+    match = _URL_CRED.match(secret)
+    if match is None:
+        return False
+    user, pw = match.group("user").lower(), match.group("pw").lower()
+    if "{" in user or "{" in pw or "%25" in user or "%25" in pw:
+        return True  # template de formato ({ENCODED_USER}) ou fixture de parser de URL
+    if _EXAMPLE_HOST.match(match.group("host").lower()):
+        return True  # localhost / IP privado / example.* / *.test|.local|.invalid
+    user_ph = user in _PLACEHOLDER_USERS or set(user) <= {"x"}
+    pw_ph = (
+        pw in _PLACEHOLDER_PWS
+        or set(pw) <= {"x"}
+        or any(w in pw for w in ("changeme", "example", "pass", "secret"))
+    )
+    return user_ph and pw_ph  # user E senha placeholder (não suprime vazamento real)
 
 
 def looks_like_placeholder(secret: str) -> bool:
@@ -232,6 +325,15 @@ def looks_like_placeholder(secret: str) -> bool:
     if secret in KNOWN_FAKE_SECRETS:
         return True
     lowered = secret.lower()
+    if lowered in _WEAK_EXAMPLE_VALUES:
+        return True
     if any(sub in lowered for sub in PLACEHOLDER_SUBSTRINGS):
         return True
-    return bool(_REPEATED.match(secret))
+    if _REPEATED.match(secret):
+        return True
+    return _is_example_url_cred(secret)
+
+
+def is_probable_hash_or_id(token: str) -> bool:
+    """UUID ou SHA-1 de 40 hex (commit/pin de action) — estrutura de hash, não de segredo."""
+    return bool(_UUID.match(token) or _GIT_SHA.match(token))

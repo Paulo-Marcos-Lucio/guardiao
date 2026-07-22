@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import re
 import time
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -12,12 +14,21 @@ from guardiao.core.entropy import is_high_entropy, shannon_entropy
 from guardiao.core.models import Finding, Location, Severity
 from guardiao.core.redaction import redact, redact_spans
 from guardiao.rules.base import Rule
-from guardiao.rules.definitions import looks_like_placeholder
+from guardiao.rules.definitions import is_probable_hash_or_id, looks_like_placeholder
 from guardiao.rules.registry import all_rules
 from guardiao.sources.files import iter_files, read_text
 from guardiao.sources.githistory import iter_history_blobs
 
 _ALLOW_MARKERS = ("guardiao:allow", "guardiao: allow", "pragma: allowlist secret")
+
+
+@functools.cache
+def _keyword_pattern(keywords: tuple[str, ...]) -> re.Pattern[str] | None:
+    """Regex que casa qualquer keyword como palavra (evita 'author'→'auth', 'monkey'→'key')."""
+    if not keywords:
+        return None
+    body = "|".join(re.escape(k) for k in keywords)
+    return re.compile(rf"(?<![a-z0-9])(?:{body})(?![a-z0-9])", re.IGNORECASE)
 
 
 @dataclass
@@ -62,17 +73,23 @@ class Scanner:
             # 1) Coleta todos os matches da linha que sobrevivem aos filtros.
             hits: list[tuple[Rule, int, str, float]] = []
             for rule in self.rules:
+                keyword_re = _keyword_pattern(rule.keywords)
+                if keyword_re is not None and keyword_re.search(raw_line) is None:
+                    continue
                 for match in rule.find(raw_line):
                     secret = match.secret
                     if looks_like_placeholder(secret):
                         continue
-                    if rule.keywords and not any(k in raw_line.lower() for k in rule.keywords):
-                        continue
                     entropy = shannon_entropy(secret)
                     if rule.min_entropy is not None and entropy < rule.min_entropy:
                         continue
-                    if rule.category == "entropy" and not is_high_entropy(secret):
-                        continue
+                    if rule.category == "entropy":
+                        if not is_high_entropy(secret):
+                            continue
+                        if is_probable_hash_or_id(secret):
+                            continue  # UUID / SHA-1 de commit / pin não são segredos
+                        if match.start > 0 and raw_line[match.start - 1] == "@":
+                            continue  # 'action@sha' / 'image@digest' são pins, não segredos
                     hits.append((rule, match.start, secret, entropy))
             if not hits:
                 continue

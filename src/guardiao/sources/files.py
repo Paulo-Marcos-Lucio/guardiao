@@ -43,6 +43,8 @@ def _walk(root: Path, config: Config) -> Iterator[Path]:
 def _eligible(path: Path, config: Config) -> bool:
     if path.suffix.lower() in config.binary_exts:
         return False
+    if config.is_noise_file(path.name):
+        return False
     try:
         if path.stat().st_size > config.max_file_size:
             return False

@@ -67,13 +67,18 @@ def _root(
 
 
 def _build_config(
-    only: list[str], skip: list[str], skip_category: list[str], no_entropy: bool
+    only: list[str],
+    skip: list[str],
+    skip_category: list[str],
+    no_entropy: bool,
+    scan_lockfiles: bool = False,
 ) -> Config:
     return Config(
         only=frozenset(only),
         skip=frozenset(skip),
         skip_categories=frozenset(skip_category),
         use_entropy=not no_entropy,
+        scan_noise_files=scan_lockfiles,
     )
 
 
@@ -128,6 +133,12 @@ def scan(
         FailOn.medium, "--fail-on", help="Severidade mínima que faz o comando sair com código 1."
     ),
     no_entropy: bool = typer.Option(False, "--no-entropy", help="Desliga a regra por entropia."),
+    scan_lockfiles: bool = typer.Option(
+        False,
+        "--scan-lockfiles",
+        help="Também varre lockfiles/gerados (uv.lock, package-lock.json, *.min.js). "
+        "Por padrão são pulados (só hashes, geram ruído).",
+    ),
     only: list[str] = typer.Option([], "--only", help="Roda apenas estas regras (por id)."),
     skip: list[str] = typer.Option([], "--skip", help="Pula estas regras (por id)."),
     skip_category: list[str] = typer.Option(
@@ -136,7 +147,7 @@ def scan(
 ) -> None:
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
-    config = _build_config(only, skip, skip_category, no_entropy)
+    config = _build_config(only, skip, skip_category, no_entropy, scan_lockfiles)
     scanner = Scanner(config=config)
 
     if git_history:
