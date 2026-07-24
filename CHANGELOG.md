@@ -8,6 +8,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Adicionado
 
+- Três novos detectores de provedores com formato público e documentado:
+  **Twilio** API Key SID (`SK` + 32 hex, 34 chars — REST API Key Resource),
+  **DigitalOcean** access token (`dop_`/`doo_`/`dor_v1_` + 64 hex) e
+  **Hugging Face** access token (`hf_`, risco de supply chain de ML). Cada regra
+  ancora no prefixo fixo do fornecedor (baixo falso-positivo) e tem teste positivo
+  (token sintético realista) e negativo (uso benigno do prefixo, ex.: `SKU-`, `hf_model_config`).
 - Quatro novos detectores de provedores, todos com formato público e documentado:
   **Mercado Pago** access token (`APP_USR-<appid>-<data>-<hash>-<userid>`, crítico —
   atende ao item de roadmap de gateways de pagamento BR), **GitLab** PAT (`glpat-`),
