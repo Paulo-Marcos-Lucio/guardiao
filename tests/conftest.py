@@ -47,6 +47,12 @@ MERCADOPAGO_TOKEN = (
 )
 # Public key do Mercado Pago (NÃO é segredo de backend): primeiro segmento é hex, não dígitos.
 MERCADOPAGO_PUBLIC_KEY = "APP_USR-d0a26210-0b3e-4c1a-8f7a-479f0400869e"
+# Shopify access token: shp<tipo>_ + 32 hex. Sintético.
+SHOPIFY_TOKEN = "shp" + "at_" + "0a1b2c3d4e5f6071" + "8293a4b5c6d7e8f9"
+# Doppler personal token: dp.pt. + 43 base62. Sintético.
+DOPPLER_TOKEN = "dp." + "pt." + "A1b2C3d4E5f6G7h8J9k0" + "L1m2N3o4P5q6R7s8T9u0" + "vW1"
+# Linear API key pessoal: lin_api_ + 40 base62. Sintético.
+LINEAR_KEY = "lin_" + "api_" + "A1b2C3d4E5f6G7h8J9k0" + "L1m2N3o4P5q6R7s8T9u0"
 
 
 @pytest.fixture

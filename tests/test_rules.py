@@ -9,16 +9,19 @@ from tests.conftest import (
     AWS_KEY_ID,
     DB_URI,
     DIGITALOCEAN_TOKEN,
+    DOPPLER_TOKEN,
     GH_TOKEN,
     GITLAB_PAT,
     GOOGLE_KEY,
     HUGGINGFACE_TOKEN,
     JWT,
+    LINEAR_KEY,
     MERCADOPAGO_PUBLIC_KEY,
     MERCADOPAGO_TOKEN,
     NPM_TOKEN,
     PRIVATE_KEY_HEADER,
     SENDGRID_KEY,
+    SHOPIFY_TOKEN,
     TWILIO_API_KEY,
 )
 
@@ -42,6 +45,9 @@ def _rule_ids(text: str) -> set[str]:
         (f'k = "{DIGITALOCEAN_TOKEN}"', "digitalocean-token"),
         (f'k = "{HUGGINGFACE_TOKEN}"', "huggingface-token"),
         (f'k = "{MERCADOPAGO_TOKEN}"', "mercadopago-access-token"),
+        (f'k = "{SHOPIFY_TOKEN}"', "shopify-token"),
+        (f'k = "{DOPPLER_TOKEN}"', "doppler-token"),
+        (f'k = "{LINEAR_KEY}"', "linear-api-key"),
         (PRIVATE_KEY_HEADER, "private-key"),
         ('api_key = "S3cr3tP4ssw0rdX9zQvB"', "generic-assignment"),
         ("meu cpf: 123.456.789-09", "cpf"),
@@ -66,6 +72,9 @@ def test_rule_positive(text: str, expected: str) -> None:
         'sku = "SKU-12345 é um código de produto"',  # 'SK' sem 32 hex → não é Twilio
         'doc = "dop_v1_ is our internal doc prefix"',  # 'dop_v1_' sem os 64 hex
         'path = "hf_model_config.json"',  # 'hf_' sem run alfanumérico de 34+
+        'note = "shpat_ is the Shopify admin token prefix"',  # 'shpat_' sem 32 hex
+        'cfg = "dp.pt. marca nosso deploy-pipeline tag"',  # 'dp.pt.' sem os 43 chars
+        'doc = "lin_api_ delimita a seção do Linear"',  # 'lin_api_' sem 40 chars
     ],
 )
 def test_rule_negative(text: str) -> None:

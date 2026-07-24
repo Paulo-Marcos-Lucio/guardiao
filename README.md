@@ -46,6 +46,9 @@ O Guardião foi feito para os dois momentos:
 | `twilio-api-key` | API Key SID do Twilio (`SK` + 32 hex) | 🟠 Alta | A05 · CWE-798 |
 | `digitalocean-token` | Token de acesso da DigitalOcean (`dop_`/`doo_`/`dor_v1_`) | 🟠 Alta | A05 · CWE-798 |
 | `huggingface-token` | Token de acesso do Hugging Face (`hf_`) | 🟠 Alta | A08 · CWE-798 |
+| `shopify-token` | Access token / shared secret da Shopify (`shpat_`/`shpca_`/`shppa_`/`shpss_`) | 🟠 Alta | A05 · CWE-798 |
+| `doppler-token` | Token pessoal do Doppler (`dp.pt.`) — gestor de segredos | 🔴 Crítica | A05 · CWE-798 |
+| `linear-api-key` | Chave de API pessoal do Linear (`lin_api_`) | 🟠 Alta | A07 · CWE-798 |
 | `slack-token` / `slack-webhook` | Token/Webhook do Slack | 🟠/🟡 | A05/A01 |
 | `db-connection-uri` | URI de banco com usuário:senha | 🟠 Alta | A05 · CWE-798 |
 | `basic-auth-url` | Credencial embutida em URL | 🟡 Média | A07 · CWE-522 |
@@ -167,6 +170,7 @@ Ferramenta para **avaliar repositórios que você possui ou tem autorização pa
 - [ ] Reescrita de histórico assistida (integração com `git filter-repo`).
 - [ ] Verificação de validade de credencial (checagem passiva, opt-in).
 - [x] Regras para provedores BR (gateways de pagamento) — **Mercado Pago** (`APP_USR-`), além de GitLab, npm, SendGrid, **Twilio** (`SK`), **DigitalOcean** (`dop_v1_`) e **Hugging Face** (`hf_`). *ERPs BR (ex.: Omie, Bling) seguem no radar.*
+- [x] Regras para SaaS de e-commerce/plataforma e gestão de segredos — **Shopify** (`shpat_`/`shpss_`), **Doppler** (`dp.pt.`) e **Linear** (`lin_api_`).
 - [ ] Saída *pre-commit* incremental por hash de blob.
 
 ---

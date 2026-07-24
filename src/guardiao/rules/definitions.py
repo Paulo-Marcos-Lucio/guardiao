@@ -219,6 +219,44 @@ def default_rules() -> list[Rule]:
             + _ROTATE,
         ),
         compile_rule(
+            "shopify-token",
+            "Shopify access token / shared secret",
+            Severity.HIGH,
+            r"\b(shp(?:at|ca|pa|ss)_[a-fA-F0-9]{32})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A05:2021 Security Misconfiguration",
+            recommendation="Credencial da Shopify (shpat_/shpca_/shppa_ = access token; "
+            "shpss_ = shared secret) dá acesso à Admin API da loja — pedidos, clientes e "
+            "dados sensíveis. Desinstale/reinstale o app na loja ou gire o segredo no "
+            "Partner Dashboard. " + _ROTATE,
+        ),
+        compile_rule(
+            "doppler-token",
+            "Doppler personal token",
+            Severity.CRITICAL,
+            r"\b(dp\.pt\.[A-Za-z0-9]{43})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A05:2021 Security Misconfiguration",
+            recommendation="Token pessoal do Doppler (dp.pt.) é chave-mestra de um gestor de "
+            "segredos: dá acesso a TODOS os segredos das configs a que o usuário tem acesso. "
+            "Revogue em Dashboard > Tokens e trate os segredos expostos como comprometidos. "
+            + _ROTATE,
+        ),
+        compile_rule(
+            "linear-api-key",
+            "Linear API key",
+            Severity.HIGH,
+            r"\b(lin_api_[A-Za-z0-9]{40})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A07:2021 Identification and Authentication Failures",
+            recommendation="Chave de API pessoal do Linear (lin_api_) autentica na API do "
+            "workspace — issues, projetos e roadmap. Revogue em Settings > Security & access "
+            "> API. " + _ROTATE,
+        ),
+        compile_rule(
             "jwt",
             "JSON Web Token (JWT)",
             Severity.MEDIUM,
