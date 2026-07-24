@@ -33,6 +33,14 @@ NPM_TOKEN = "npm_" + "A1b2C3d4E5f6G7h8J9k0L1m2N3o4P5q6R7s8"  # npm_ + 36 chars
 SENDGRID_KEY = (
     "SG." + "A1b2C3d4E5f6G7h8J9k0L1" + "." + "M2n3O4p5Q6r7S8t9U0v1W2x3Y4z5A6b7C8d9E0f1G2h"
 )
+# Twilio API Key SID: SK + 32 hex minúsculo (34 chars no total). Sintético.
+TWILIO_API_KEY = "SK" + "0a1b2c3d4e5f6071" + "8293a4b5c6d7e8f9"
+# DigitalOcean personal access token: dop_v1_ + 64 hex. Sintético.
+DIGITALOCEAN_TOKEN = (
+    "dop_v1_" + "0a1b2c3d4e5f6071" + "8293a4b5c6d7e8f9" + "1f2e3d4c5b6a7988" + "9a8b7c6d5e4f3021"
+)
+# Hugging Face access token: hf_ + 36 alfanuméricos. Sintético.
+HUGGINGFACE_TOKEN = "hf_" + "Rk8xY2mN4pQ7wLvB" + "3cD5fG6hJ9kMnP2q" + "AtZ7"
 # Access token do Mercado Pago: APP_USR-<appid>-<MMDDHH>-<hash 32 hex>-<userid>
 MERCADOPAGO_TOKEN = (
     "APP_USR-4934588586838432-071234-" + "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6" + "-2880736"

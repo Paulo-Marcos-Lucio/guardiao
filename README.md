@@ -43,6 +43,9 @@ O Guardião foi feito para os dois momentos:
 | `gitlab-pat` | Personal Access Token do GitLab (`glpat-`) | 🟠 Alta | A07 · CWE-798 |
 | `npm-token` | Token de acesso do npm (`npm_`) | 🟠 Alta | A08 · CWE-798 |
 | `sendgrid-api-key` | Chave de API do SendGrid (`SG.`) | 🟠 Alta | A05 · CWE-798 |
+| `twilio-api-key` | API Key SID do Twilio (`SK` + 32 hex) | 🟠 Alta | A05 · CWE-798 |
+| `digitalocean-token` | Token de acesso da DigitalOcean (`dop_`/`doo_`/`dor_v1_`) | 🟠 Alta | A05 · CWE-798 |
+| `huggingface-token` | Token de acesso do Hugging Face (`hf_`) | 🟠 Alta | A08 · CWE-798 |
 | `slack-token` / `slack-webhook` | Token/Webhook do Slack | 🟠/🟡 | A05/A01 |
 | `db-connection-uri` | URI de banco com usuário:senha | 🟠 Alta | A05 · CWE-798 |
 | `basic-auth-url` | Credencial embutida em URL | 🟡 Média | A07 · CWE-522 |
@@ -163,7 +166,7 @@ Ferramenta para **avaliar repositórios que você possui ou tem autorização pa
 
 - [ ] Reescrita de histórico assistida (integração com `git filter-repo`).
 - [ ] Verificação de validade de credencial (checagem passiva, opt-in).
-- [x] Regras para provedores BR (gateways de pagamento) — **Mercado Pago** (`APP_USR-`), além de GitLab, npm e SendGrid. *ERPs BR (ex.: Omie, Bling) seguem no radar.*
+- [x] Regras para provedores BR (gateways de pagamento) — **Mercado Pago** (`APP_USR-`), além de GitLab, npm, SendGrid, **Twilio** (`SK`), **DigitalOcean** (`dop_v1_`) e **Hugging Face** (`hf_`). *ERPs BR (ex.: Omie, Bling) seguem no radar.*
 - [ ] Saída *pre-commit* incremental por hash de blob.
 
 ---

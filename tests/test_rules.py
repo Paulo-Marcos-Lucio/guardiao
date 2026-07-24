@@ -8,15 +8,18 @@ from guardiao.rules.registry import all_rules, rules_by_id
 from tests.conftest import (
     AWS_KEY_ID,
     DB_URI,
+    DIGITALOCEAN_TOKEN,
     GH_TOKEN,
     GITLAB_PAT,
     GOOGLE_KEY,
+    HUGGINGFACE_TOKEN,
     JWT,
     MERCADOPAGO_PUBLIC_KEY,
     MERCADOPAGO_TOKEN,
     NPM_TOKEN,
     PRIVATE_KEY_HEADER,
     SENDGRID_KEY,
+    TWILIO_API_KEY,
 )
 
 
@@ -35,6 +38,9 @@ def _rule_ids(text: str) -> set[str]:
         (f'k = "{GITLAB_PAT}"', "gitlab-pat"),
         (f'k = "{NPM_TOKEN}"', "npm-token"),
         (f'k = "{SENDGRID_KEY}"', "sendgrid-api-key"),
+        (f'k = "{TWILIO_API_KEY}"', "twilio-api-key"),
+        (f'k = "{DIGITALOCEAN_TOKEN}"', "digitalocean-token"),
+        (f'k = "{HUGGINGFACE_TOKEN}"', "huggingface-token"),
         (f'k = "{MERCADOPAGO_TOKEN}"', "mercadopago-access-token"),
         (PRIVATE_KEY_HEADER, "private-key"),
         ('api_key = "S3cr3tP4ssw0rdX9zQvB"', "generic-assignment"),
@@ -57,6 +63,9 @@ def test_rule_positive(text: str, expected: str) -> None:
         'label = "glpat-demo"',  # curto demais para ser um glpat real
         'note = "npm_install runs quickly"',  # 'npm_' sem token de 36 chars
         'msg = "SG is the SendGrid abbreviation"',  # 'SG' sem estrutura de chave
+        'sku = "SKU-12345 é um código de produto"',  # 'SK' sem 32 hex → não é Twilio
+        'doc = "dop_v1_ is our internal doc prefix"',  # 'dop_v1_' sem os 64 hex
+        'path = "hf_model_config.json"',  # 'hf_' sem run alfanumérico de 34+
     ],
 )
 def test_rule_negative(text: str) -> None:

@@ -160,6 +160,42 @@ def default_rules() -> list[Rule]:
             "domínio — risco de phishing/spoofing. Revogue no painel do SendGrid. " + _ROTATE,
         ),
         compile_rule(
+            "twilio-api-key",
+            "Twilio API Key SID",
+            Severity.HIGH,
+            r"\b(SK[0-9a-f]{32})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A05:2021 Security Misconfiguration",
+            recommendation="API Key SID do Twilio (SK + 32 hex) autentica envio de SMS/voz e "
+            "gera custo na conta. Revogue no Console do Twilio (Account > API keys & tokens). "
+            + _ROTATE,
+        ),
+        compile_rule(
+            "digitalocean-token",
+            "DigitalOcean access token",
+            Severity.HIGH,
+            r"\b((?:dop|doo|dor)_v1_[0-9a-f]{64})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A05:2021 Security Misconfiguration",
+            recommendation="Token de acesso da DigitalOcean (dop_/doo_/dor_v1_) dá acesso de "
+            "API à infraestrutura (droplets, DNS, storage, faturamento). Revogue em API > Tokens. "
+            + _ROTATE,
+        ),
+        compile_rule(
+            "huggingface-token",
+            "Hugging Face access token",
+            Severity.HIGH,
+            r"\b(hf_[A-Za-z0-9]{34,64})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A08:2021 Software and Data Integrity Failures",
+            recommendation="Token de acesso do Hugging Face (prefixo hf_). Um token de escrita "
+            "pode publicar em repositórios de modelos/datasets — risco de supply chain de ML. "
+            "Revogue em Settings > Access Tokens. " + _ROTATE,
+        ),
+        compile_rule(
             "mercadopago-access-token",
             "Mercado Pago Access Token",
             Severity.CRITICAL,
