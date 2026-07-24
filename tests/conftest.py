@@ -24,6 +24,22 @@ JWT = (
 )
 PRIVATE_KEY_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 
+# Provedores adicionais: tokens sintéticos que respeitam o formato público (sem placeholders).
+# São montados a partir de fragmentos de propósito — o formato é válido o bastante para o
+# secret-scanning (o nosso E o do GitHub) reagir, então o literal completo nunca aparece no
+# arquivo versionado; em runtime o valor concatenado exercita a regex normalmente.
+GITLAB_PAT = "glpat-" + "A1b2C3d4E5f6G7h8J9k0"  # glpat- + 20 chars
+NPM_TOKEN = "npm_" + "A1b2C3d4E5f6G7h8J9k0L1m2N3o4P5q6R7s8"  # npm_ + 36 chars
+SENDGRID_KEY = (
+    "SG." + "A1b2C3d4E5f6G7h8J9k0L1" + "." + "M2n3O4p5Q6r7S8t9U0v1W2x3Y4z5A6b7C8d9E0f1G2h"
+)
+# Access token do Mercado Pago: APP_USR-<appid>-<MMDDHH>-<hash 32 hex>-<userid>
+MERCADOPAGO_TOKEN = (
+    "APP_USR-4934588586838432-071234-" + "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6" + "-2880736"
+)
+# Public key do Mercado Pago (NÃO é segredo de backend): primeiro segmento é hex, não dígitos.
+MERCADOPAGO_PUBLIC_KEY = "APP_USR-d0a26210-0b3e-4c1a-8f7a-479f0400869e"
+
 
 @pytest.fixture
 def planted_dir(tmp_path: Path) -> Path:

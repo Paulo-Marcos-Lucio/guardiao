@@ -38,7 +38,11 @@ O Guardião foi feito para os dois momentos:
 | `stripe-secret-key` | Chave de produção da Stripe (`sk_live`/`rk_live`) | 🔴 Crítica | A05 · CWE-798 |
 | `aws-access-key-id` / `aws-secret-access-key` | Credenciais AWS | 🟠 Alta | A05 · CWE-798 |
 | `github-token` / `github-pat-fine-grained` | Tokens do GitHub (PAT, OAuth, App) | 🟠 Alta | A07 · CWE-798 |
+| `mercadopago-access-token` | Access token de produção do Mercado Pago (`APP_USR-…`) | 🔴 Crítica | A05 · CWE-798 |
 | `google-api-key` | Chave de API do Google | 🟠 Alta | A05 · CWE-798 |
+| `gitlab-pat` | Personal Access Token do GitLab (`glpat-`) | 🟠 Alta | A07 · CWE-798 |
+| `npm-token` | Token de acesso do npm (`npm_`) | 🟠 Alta | A08 · CWE-798 |
+| `sendgrid-api-key` | Chave de API do SendGrid (`SG.`) | 🟠 Alta | A05 · CWE-798 |
 | `slack-token` / `slack-webhook` | Token/Webhook do Slack | 🟠/🟡 | A05/A01 |
 | `db-connection-uri` | URI de banco com usuário:senha | 🟠 Alta | A05 · CWE-798 |
 | `basic-auth-url` | Credencial embutida em URL | 🟡 Média | A07 · CWE-522 |
@@ -159,7 +163,7 @@ Ferramenta para **avaliar repositórios que você possui ou tem autorização pa
 
 - [ ] Reescrita de histórico assistida (integração com `git filter-repo`).
 - [ ] Verificação de validade de credencial (checagem passiva, opt-in).
-- [ ] Regras para provedores BR (gateways de pagamento, ERPs).
+- [x] Regras para provedores BR (gateways de pagamento) — **Mercado Pago** (`APP_USR-`), além de GitLab, npm e SendGrid. *ERPs BR (ex.: Omie, Bling) seguem no radar.*
 - [ ] Saída *pre-commit* incremental por hash de blob.
 
 ---
