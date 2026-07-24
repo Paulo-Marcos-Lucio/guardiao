@@ -9,9 +9,14 @@ from tests.conftest import (
     AWS_KEY_ID,
     DB_URI,
     GH_TOKEN,
+    GITLAB_PAT,
     GOOGLE_KEY,
     JWT,
+    MERCADOPAGO_PUBLIC_KEY,
+    MERCADOPAGO_TOKEN,
+    NPM_TOKEN,
     PRIVATE_KEY_HEADER,
+    SENDGRID_KEY,
 )
 
 
@@ -27,6 +32,10 @@ def _rule_ids(text: str) -> set[str]:
         (f'k = "{GOOGLE_KEY}"', "google-api-key"),
         (f'url = "{DB_URI}"', "db-connection-uri"),
         (f'jwt = "{JWT}"', "jwt"),
+        (f'k = "{GITLAB_PAT}"', "gitlab-pat"),
+        (f'k = "{NPM_TOKEN}"', "npm-token"),
+        (f'k = "{SENDGRID_KEY}"', "sendgrid-api-key"),
+        (f'k = "{MERCADOPAGO_TOKEN}"', "mercadopago-access-token"),
         (PRIVATE_KEY_HEADER, "private-key"),
         ('api_key = "S3cr3tP4ssw0rdX9zQvB"', "generic-assignment"),
         ("meu cpf: 123.456.789-09", "cpf"),
@@ -45,10 +54,25 @@ def test_rule_positive(text: str, expected: str) -> None:
         'password = "password"',  # entropia baixa demais
         'key = "AKIAIOSFODNN7EXAMPLE"',  # exemplo canônico da AWS
         'token = "your-token-here"',  # placeholder
+        'label = "glpat-demo"',  # curto demais para ser um glpat real
+        'note = "npm_install runs quickly"',  # 'npm_' sem token de 36 chars
+        'msg = "SG is the SendGrid abbreviation"',  # 'SG' sem estrutura de chave
     ],
 )
 def test_rule_negative(text: str) -> None:
     assert _rule_ids(text) == set()
+
+
+def test_mercadopago_public_key_is_not_flagged() -> None:
+    """A public key do Mercado Pago (uso no frontend) NÃO é o access token de backend:
+    o primeiro segmento é hexadecimal, não uma sequência de dígitos."""
+    ids = _rule_ids(f'public_key = "{MERCADOPAGO_PUBLIC_KEY}"')
+    assert "mercadopago-access-token" not in ids
+
+
+def test_mercadopago_access_token_is_flagged() -> None:
+    ids = _rule_ids(f'access_token = "{MERCADOPAGO_TOKEN}"')
+    assert "mercadopago-access-token" in ids
 
 
 def test_all_rules_have_metadata() -> None:

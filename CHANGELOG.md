@@ -4,6 +4,19 @@ Todos os lançamentos notáveis deste projeto são documentados aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+
+- Quatro novos detectores de provedores, todos com formato público e documentado:
+  **Mercado Pago** access token (`APP_USR-<appid>-<data>-<hash>-<userid>`, crítico —
+  atende ao item de roadmap de gateways de pagamento BR), **GitLab** PAT (`glpat-`),
+  **npm** token (`npm_`, risco de supply chain) e **SendGrid** API key (`SG.`).
+- O detector do Mercado Pago distingue o **access token** (segredo de backend) da
+  **public key** de frontend: exige que o primeiro segmento seja numérico, evitando
+  falso-positivo na chave pública. Cada regra tem teste positivo (token realista) e
+  negativo (entrada benigna / chave pública).
+
 ## [0.1.0] — 2026-07-21
 
 ### Adicionado

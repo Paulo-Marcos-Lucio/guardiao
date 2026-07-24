@@ -96,6 +96,28 @@ def default_rules() -> list[Rule]:
             recommendation="Token fine-grained do GitHub. " + _ROTATE,
         ),
         compile_rule(
+            "gitlab-pat",
+            "GitLab Personal Access Token",
+            Severity.HIGH,
+            r"\b(glpat-[0-9A-Za-z_-]{20,50})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A07:2021 Identification and Authentication Failures",
+            recommendation="Token de acesso pessoal do GitLab (prefixo glpat-). "
+            "Revogue em User Settings > Access Tokens. " + _ROTATE,
+        ),
+        compile_rule(
+            "npm-token",
+            "npm access token",
+            Severity.HIGH,
+            r"\b(npm_[0-9A-Za-z]{36})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A08:2021 Software and Data Integrity Failures",
+            recommendation="Token de acesso do npm (prefixo npm_) permite publicar pacotes — "
+            "risco de supply chain. Revogue em npmjs.com > Access Tokens. " + _ROTATE,
+        ),
+        compile_rule(
             "google-api-key",
             "Google API Key",
             Severity.HIGH,
@@ -125,6 +147,29 @@ def default_rules() -> list[Rule]:
             cwe="CWE-200",
             owasp="A01:2021 Broken Access Control",
             recommendation="Webhook do Slack permite postar como o app. " + _ROTATE,
+        ),
+        compile_rule(
+            "sendgrid-api-key",
+            "SendGrid API Key",
+            Severity.HIGH,
+            r"\b(SG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43})(?![0-9A-Za-z_-])",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A05:2021 Security Misconfiguration",
+            recommendation="Chave de API do SendGrid (prefixo SG.) permite enviar e-mail em seu "
+            "domínio — risco de phishing/spoofing. Revogue no painel do SendGrid. " + _ROTATE,
+        ),
+        compile_rule(
+            "mercadopago-access-token",
+            "Mercado Pago Access Token",
+            Severity.CRITICAL,
+            r"\b(APP_USR-\d+-\d{6}-[0-9a-f]{32}-\d+)\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp="A05:2021 Security Misconfiguration",
+            recommendation="Access token de produção do Mercado Pago (APP_USR-...) dá acesso "
+            "de backend à conta de pagamentos. Revogue e gere outro no painel de credenciais "
+            "(Suas integrações). " + _ROTATE,
         ),
         compile_rule(
             "stripe-secret-key",
