@@ -9,6 +9,13 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 ### Adicionado
 
 - Três novos detectores de provedores com formato público e documentado:
+  **Shopify** (`shpat_`/`shpca_`/`shppa_` = access token e `shpss_` = shared secret,
+  prefixo + 32 hex; acesso à Admin API da loja), **Doppler** personal token
+  (`dp.pt.` + 43 base62 — chave-mestra de um gestor de segredos, severidade crítica) e
+  **Linear** API key (`lin_api_` + 40 base62). Cada regra ancora no prefixo fixo do
+  fornecedor (baixo falso-positivo) e tem teste positivo (token sintético realista) e
+  negativo (uso benigno do prefixo, ex.: `shpat_`/`dp.pt.`/`lin_api_` sem o corpo do token).
+- Três novos detectores de provedores com formato público e documentado:
   **Twilio** API Key SID (`SK` + 32 hex, 34 chars — REST API Key Resource),
   **DigitalOcean** access token (`dop_`/`doo_`/`dor_v1_` + 64 hex) e
   **Hugging Face** access token (`hf_`, risco de supply chain de ML). Cada regra
