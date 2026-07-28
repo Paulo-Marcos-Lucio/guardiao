@@ -1,3 +1,5 @@
+<a href="https://paulo-marcos-lucio.github.io"><img src="https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/banner-abismo.svg" alt="Guardião — o escudo que guarda a fronteira do seu código: scanner de segredos no código e no histórico Git" width="100%"/></a>
+
 <div align="center">
 
 # 🔑 Guardião
@@ -137,6 +139,25 @@ repos:
   with:
     sarif_file: guardiao.sarif
 ```
+
+---
+
+## 🔓 Versão Pro (privada) — engine calibrada + rotação
+
+Este repo é a **vitrine** do scanner. A **versão Pro é privada**: a **engine completa calibrada em campo** — a que derruba o falso-positivo a quase zero em bases reais — a varredura de **todo o histórico** de repositórios críticos e o **acompanhamento da rotação** de cada segredo encontrado. Porque achar é metade; **rotacionar e comprovar** é o serviço.
+
+- 🔬 Detecção calibrada em execução real (menos ruído, mais sinal);
+- 🔁 Plano de **rotação** e reteste que comprova que o segredo saiu de circulação;
+- 📄 Evidência de gestão de segredos alinhada à **LGPD (art. 46)**.
+
+> **Tem repositórios (ou um histórico Git longo) que nunca foram auditados?** Eu varro, priorizo e conduzo a rotação com você.
+
+<div align="center">
+
+[![Pacotes e valores](https://img.shields.io/badge/Pacotes_e_valores-paulo--marcos--lucio.github.io-0f766e?style=for-the-badge)](https://paulo-marcos-lucio.github.io)
+[![Falar no LinkedIn](https://img.shields.io/badge/LinkedIn-Falar_agora-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/paulo-marcos-a07379174/)
+
+</div>
 
 ---
 
