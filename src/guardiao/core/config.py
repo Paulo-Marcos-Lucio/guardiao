@@ -13,6 +13,7 @@ DEFAULT_EXCLUDE_DIRS: frozenset[str] = frozenset(
         ".venv",
         "venv",
         "env",
+        "site-packages",
         "__pycache__",
         ".mypy_cache",
         ".pytest_cache",

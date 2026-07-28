@@ -6,6 +6,15 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Falso-positivo em virtualenvs de nome atípico:** a exclusão de diretórios era por nome exato
+  (`.venv`/`venv`), então um venv chamado `.venv-locust` (ou `venv311`, `.env-ci`…) era varrido e o
+  `site-packages` interno inundava o relatório com certificados/chaves de teste de bibliotecas.
+  Agora **qualquer** virtualenv é reconhecido pelo marcador canônico `pyvenv.cfg` e `site-packages`
+  entra na exclusão padrão. Em auditoria de campo real, cortou o ruído pela metade (ex.: **106 → 58
+  achados, 0 em `venv`/`site-packages`**).
+
 ### Adicionado
 
 - Três novos detectores de provedores com formato público e documentado:

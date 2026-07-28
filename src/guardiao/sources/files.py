@@ -33,11 +33,29 @@ def _walk(root: Path, config: Config) -> Iterator[Path]:
             if entry.is_symlink():
                 continue
             if entry.is_dir():
-                if entry.name in config.exclude_dirs:
+                if _skip_dir(entry, config):
                     continue
                 stack.append(entry)
             elif entry.is_file():
                 yield entry
+
+
+def _skip_dir(entry: Path, config: Config) -> bool:
+    """Decide se um diretório inteiro deve ser ignorado na varredura.
+
+    Além dos nomes exatos de ``exclude_dirs``, identifica virtualenvs com nome
+    fora do padrão (``.venv-locust``, ``venv311``, ``.env-ci``…) pelo marcador
+    canônico ``pyvenv.cfg``. Sem isso, um venv com nome atípico é varrido e o
+    ``site-packages`` interno inunda o relatório com chaves/certs de teste de
+    bibliotecas — falso-positivo em massa (a lição de campo do Guardião)."""
+    if entry.name in config.exclude_dirs:
+        return True
+    try:
+        if (entry / "pyvenv.cfg").is_file():
+            return True
+    except OSError:  # pragma: no cover - fs edge
+        return False
+    return False
 
 
 def _eligible(path: Path, config: Config) -> bool:
