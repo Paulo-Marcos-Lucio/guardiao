@@ -1,4 +1,4 @@
-<a href="https://paulo-marcos-lucio.github.io"><img src="https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/banner-abismo.svg" alt="Guardião — o escudo que guarda a fronteira do seu código: scanner de segredos no código e no histórico Git" width="100%"/></a>
+<a href="https://paulo-marcos-lucio.github.io"><img src="https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/banner-abismo-v2.svg" alt="Guardião — o escudo que guarda a fronteira do seu código: scanner de segredos no código e no histórico Git" width="100%"/></a>
 
 <div align="center">
 
