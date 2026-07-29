@@ -38,3 +38,14 @@ def test_baseline_file_has_no_raw_secret(planted_dir: Path, tmp_path: Path) -> N
     document = json.loads(raw)
     assert document["version"] == 1
     assert document["findings"]
+
+
+def test_baseline_nao_promete_o_que_nao_cumpre(planted_dir: Path, tmp_path: Path) -> None:
+    """O README manda VERSIONAR este arquivo. A nota tem que dizer de onde a
+    fingerprint vem — a redação antiga ("não contém segredos") era falsa para
+    segredo de baixa entropia, cujo hash truncado quebra em microssegundos."""
+    baseline_path = tmp_path / "baseline.json"
+    save_baseline(baseline_path, Scanner().scan_paths([planted_dir]).findings)
+    nota = json.loads(baseline_path.read_text(encoding="utf-8"))["note"]
+    assert "valor ocultado" in nota
+    assert "--update-baseline" in nota

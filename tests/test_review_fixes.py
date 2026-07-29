@@ -1,4 +1,9 @@
-"""Testes de regressão dos bugs achados na revisão adversarial."""
+"""Testes de regressão dos bugs achados nas revisões adversariais.
+
+Cada teste aqui existe porque uma sabotagem do código de produção passava com a
+suíte verde. Se você desfizer a correção correspondente, este arquivo fica
+vermelho — é essa a função dele.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +18,19 @@ from guardiao.cli import app
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
 from guardiao.core.redaction import redact, redact_spans
-from tests.conftest import AWS_KEY_ID, GH_TOKEN
+from tests.conftest import (
+    AWS_KEY_ID,
+    CPF_VALIDO,
+    GH_TOKEN,
+    SENHA_DE_PRODUCAO,
+    STRIPE_KEY_COM_ALFABETO,
+)
 
 runner = CliRunner()
+
+
+def _ids(text: str, path: str = "x") -> set[str]:
+    return {f.rule_id for f in Scanner().scan_text(path, text)}
 
 
 # HIGH — o preview vazava segredo cru quando havia mais de um segredo na linha.
@@ -100,10 +115,6 @@ def test_pre_commit_blocks_secret_in_renamed_staged_file(
 # =========================================================================== #
 
 
-def _ids(text: str) -> set[str]:
-    return {f.rule_id for f in Scanner().scan_text("x", text)}
-
-
 def test_git_sha_and_uuid_are_hash_not_secret() -> None:
     from guardiao.rules.definitions import is_probable_hash_or_id
 
@@ -112,10 +123,34 @@ def test_git_sha_and_uuid_are_hash_not_secret() -> None:
     assert not is_probable_hash_or_id("Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zA")  # segredo real
 
 
+def test_guarda_de_hash_e_de_pin_sao_independentes() -> None:
+    """As duas guardas do ramo de entropia se mascaravam: com só um dos testes,
+    remover qualquer uma delas mantinha a suíte verde."""
+    # SHA-1 SEM '@' na frente e SEM palavra de contexto de hash na linha (senão a
+    # guarda de HASH_CONTEXT mascara esta): só `is_probable_hash_or_id` pode matar.
+    assert "high-entropy-string" not in _ids("api_key: de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    # Alta entropia que NÃO é hash, precedida de '@': só a guarda do pin pode matar.
+    assert "high-entropy-string" not in _ids(
+        "image key: repo/app@Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zA"
+    )
+
+
 def test_entropy_requires_secret_context() -> None:
     val = "Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF"
     assert "high-entropy-string" in _ids(f"token: {val}")  # perto de 'token' → dispara
     assert "high-entropy-string" not in _ids(f"result = {val}")  # sem contexto → não (era o FP)
+
+
+def test_contexto_de_hash_desliga_a_entropia() -> None:
+    """Entropia não distingue digest de credencial: MD5 e SHA-256 são tão aleatórios
+    quanto uma chave. O discriminante é o contexto da linha."""
+    assert "high-entropy-string" not in _ids(
+        'CACHE_KEY = "5d41402abc4b2a76b9719d911017c592"  # md5'
+    )
+    assert "high-entropy-string" not in _ids('etag_key = "9e107d9d372bb6826bd81d3542a419d6"')
+    assert "high-entropy-string" not in _ids('idempotency_key = "6f4922f45568161a8cdf4ad2299f6d23"')
+    # controle: o MESMO valor sem contexto de hash continua sendo achado
+    assert "high-entropy-string" in _ids("api_key: 5d41402abc4b2a76b9719d911017c592")
 
 
 def test_action_pin_sha_not_flagged() -> None:
@@ -147,6 +182,13 @@ def test_real_url_credential_still_flagged() -> None:
     assert "db-connection-uri" in _ids(line)
 
 
+def test_uri_de_redis_sem_usuario_e_detectada() -> None:
+    """`redis://:senha@host` é a forma canônica do Redis/AMQP — exigir usuário
+    não-vazio perdia a URL exatamente como o redis-cli e o Heroku a escrevem."""
+    assert "db-connection-uri" in _ids('REDIS_URL = "redis://:Xq7pL2mNv9@cache.acme.com.br:6379/0"')
+    assert "db-connection-uri" in _ids('u = "mongodb+srv://:Xq7pL2mNv9@c0.mongodb.net/db"')
+
+
 def test_weak_example_password_suppressed() -> None:
     assert "generic-assignment" not in _ids('password = "password123"')
     assert "generic-assignment" not in _ids('secret = "changeme"')
@@ -157,7 +199,7 @@ def test_fp_fixes_preserve_recall() -> None:
     cases = {
         "aws-access-key-id": 'AWS = "AKIAZQ3M7X9WPLKV2NRT"',
         "github-token": 'GH = "ghp_9zQ2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwX"',
-        "high-entropy-string": 'api_token = "Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF"',
+        "high-entropy-string": "Authorization: Bearer Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF",
         "private-key": "-----BEGIN RSA PRIVATE KEY-----",
     }
     for rule_id, line in cases.items():
@@ -177,3 +219,88 @@ def test_two_distinct_secrets_on_line_both_kept() -> None:
     rules = {f.rule_id for f in Scanner().scan_text("x.py", line)}
     assert "aws-access-key-id" in rules
     assert "github-token" in rules
+
+
+# =========================================================================== #
+# Auditoria adversarial de 2026-07-29.
+# =========================================================================== #
+
+
+def test_prefixo_de_fornecedor_nao_e_engolido_por_substring_de_placeholder() -> None:
+    """`abcdefgh` e `1234567890` em PLACEHOLDER_SUBSTRINGS suprimiam em SILÊNCIO
+    valores legítimos que contivessem a sequência — inclusive uma senha humana
+    como `Cliente1234567890`."""
+    assert "stripe-secret-key" in _ids(f'STRIPE_SECRET_KEY = "{STRIPE_KEY_COM_ALFABETO}"')
+    assert "generic-assignment" in _ids('password = "Cliente1234567890"')
+
+
+def test_segredo_longo_nao_e_menos_visivel_que_um_curto() -> None:
+    """O teto de 120 chars invertia a lógica: quanto mais longo o segredo, menos
+    visível. `secret_key_base` do Rails (128 hex) era invisível."""
+    hex128 = "9f3c1a7e5b2d48c06e1f9a3b7d5c2e04" * 4
+    assert "high-entropy-string" in _ids(f"secret_key_base: {hex128}")
+    urlsafe172 = "Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF" * 4 + "Gh12"
+    assert _ids(f"HMAC_KEY = '{urlsafe172}'")
+
+
+def test_entropia_captura_o_valor_e_nao_o_par_nome_igual_valor() -> None:
+    """Com `=` dentro do corpo do regex, o achado apontava para `NOME=VALOR` inteiro:
+    a coluna vinha errada e o preview escondia o NOME e revelava o fim do segredo."""
+    valor = "Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF"
+    linha = f"API_TOKEN={valor}"
+    achado = next(f for f in Scanner().scan_text("deploy.sh", linha) if f.category == "entropy")
+    assert achado.secret == valor
+    assert linha[achado.location.column - 1 :].startswith(valor)
+    assert "API_TOKEN" in achado.line_preview
+
+
+def test_dotenv_sem_aspas_e_detectado() -> None:
+    """`DB_PASSWORD=Nordeste2019!Rj` num .env real passava batido: a regra genérica
+    exige aspas em volta do valor."""
+    ids = _ids(f"DB_PASSWORD={SENHA_DE_PRODUCAO}", ".env")
+    assert "dotenv-assignment" in ids
+    assert "dotenv-assignment" in _ids(f"export JWT_SECRET={SENHA_DE_PRODUCAO}", ".env")
+    assert "dotenv-assignment" in _ids(f"AWS_SECRET={SENHA_DE_PRODUCAO}", "producao.env")
+
+
+def test_cpf_e_cnpj_conferem_digito_verificador() -> None:
+    """Sem o módulo 11, qualquer número formatado virava 'dado pessoal'."""
+    assert "cpf" in _ids(f"cliente: {CPF_VALIDO}")
+    assert "cpf" not in _ids("pedido: 000.000.000-00")
+    assert "cpf" not in _ids("codigo: 123.456.789-10")
+    assert "cnpj" not in _ids("nota: 12.345.678/0001-00")
+
+
+def test_fingerprint_publicada_nao_permite_recuperar_o_segredo() -> None:
+    """A fingerprint viaja no SARIF que o CI publica e no baseline que o README manda
+    versionar. Derivada do segredo CRU, um dicionário recuperava `Brasil@2024` em
+    dezenas de tentativas — derivada do valor OCULTADO, não há o que quebrar."""
+    achado = next(iter(Scanner().scan_text("app/settings.py", 'password = "Brasil@2024"')))
+    alvo = achado.fingerprint
+    candidatos = [
+        f"{base}@{ano}"
+        for base in ("Brasil", "Flamengo", "Palmeiras", "Corinthians")
+        for ano in range(2000, 2031)
+    ]
+    from dataclasses import replace
+
+    from guardiao.core.redaction import redact
+
+    casaram = [
+        c for c in candidatos if replace(achado, secret=c, redacted=redact(c)).fingerprint == alvo
+    ]
+    assert len(casaram) > 1, "a fingerprint publicada identifica um único segredo"
+    # e o segredo cru não é ingrediente: trocar só o valor cru não muda a identidade
+    assert replace(achado, secret="outra-coisa").fingerprint == alvo
+
+
+def test_fingerprint_muda_com_arquivo_e_com_o_valor_ocultado() -> None:
+    achado = next(iter(Scanner().scan_text("a.py", f'k = "{AWS_KEY_ID}"')))
+    outro_arquivo = next(iter(Scanner().scan_text("b.py", f'k = "{AWS_KEY_ID}"')))
+    outro_valor = next(iter(Scanner().scan_text("a.py", 'k = "AKIAZQ3M7X9WPLKV2NRT"')))
+    assert achado.fingerprint != outro_arquivo.fingerprint
+    assert achado.fingerprint != outro_valor.fingerprint
+    # ...mas NÃO muda quando o código só muda de linha (senão o alerta do GitHub reabre).
+    movido = next(iter(Scanner().scan_text("a.py", f'# nova linha\nk = "{AWS_KEY_ID}"')))
+    assert movido.location.line == 2
+    assert movido.fingerprint == achado.fingerprint

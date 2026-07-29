@@ -11,13 +11,15 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from guardiao import __version__
 from guardiao.core.baseline import apply_baseline, load_baseline, save_baseline
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner, ScanResult
-from guardiao.core.models import Finding, Severity
+from guardiao.core.models import Severity
 from guardiao.report import console as console_report
+from guardiao.report.console import txt
 from guardiao.report.json_report import to_json
 from guardiao.report.sarif import to_sarif
 from guardiao.rules.registry import all_rules
@@ -66,19 +68,46 @@ def _root(
     pass
 
 
+def _validar_selecao(only: list[str], skip: list[str], skip_category: list[str]) -> None:
+    """Id inexistente em --only/--skip/--skip-category aborta com 2.
+
+    Sem isto, um typo (`--only aws-acess-key-id`) devolve "✓ Nenhum segredo
+    encontrado" e exit 0: o CI fica verde para sempre e ninguém percebe.
+    """
+    regras = all_rules()
+    ids = {rule.id for rule in regras}
+    categorias = {rule.category for rule in regras}
+    for valores, validos, rotulo in (
+        (set(only) | set(skip), ids, "Regra(s) desconhecida(s)"),
+        (set(skip_category), categorias, "Categoria(s) desconhecida(s)"),
+    ):
+        desconhecidos = sorted(valores - validos)
+        if desconhecidos:
+            err_console.print(
+                Text(f"{rotulo}: {', '.join(desconhecidos)}", style="bold red"),
+            )
+            err_console.print(f"[dim]Válidos: {', '.join(sorted(validos))}[/]")
+            raise typer.Exit(2)
+
+
 def _build_config(
     only: list[str],
     skip: list[str],
     skip_category: list[str],
     no_entropy: bool,
     scan_lockfiles: bool = False,
+    max_file_size: int = Config.max_file_size,
+    max_line_length: int = Config.max_line_length,
 ) -> Config:
+    _validar_selecao(only, skip, skip_category)
     return Config(
         only=frozenset(only),
         skip=frozenset(skip),
         skip_categories=frozenset(skip_category),
         use_entropy=not no_entropy,
         scan_noise_files=scan_lockfiles,
+        max_file_size=max_file_size,
+        max_line_length=max_line_length,
     )
 
 
@@ -112,7 +141,9 @@ def _emit(result: ScanResult, formats: list[Format], output: Path | None) -> Non
 @app.command()
 def scan(
     path: list[Path] = typer.Argument(
-        None, help="Arquivos/pastas a varrer (padrão: diretório atual)."
+        None,
+        exists=True,
+        help="Arquivos/pastas a varrer (padrão: diretório atual).",
     ),
     formats: list[Format] = typer.Option(
         [Format.console], "--format", "-f", help="Formato de saída (repetível)."
@@ -122,6 +153,11 @@ def scan(
         False,
         "--git-history",
         help="Varre TODO o histórico Git (blobs antigos), não só a árvore atual.",
+    ),
+    permitir_shallow: bool = typer.Option(
+        False,
+        "--permitir-shallow",
+        help="Aceita rodar --git-history em clone raso (o histórico varrido fica incompleto).",
     ),
     baseline: Path | None = typer.Option(
         None, "--baseline", help="Suprime achados presentes neste baseline."
@@ -139,6 +175,12 @@ def scan(
         help="Também varre lockfiles/gerados (uv.lock, package-lock.json, *.min.js). "
         "Por padrão são pulados (só hashes, geram ruído).",
     ),
+    max_file_size: int = typer.Option(
+        Config.max_file_size, "--max-file-size", help="Tamanho máximo de arquivo varrido, em bytes."
+    ),
+    max_line_length: int = typer.Option(
+        Config.max_line_length, "--max-line-length", help="Comprimento máximo de linha analisada."
+    ),
     only: list[str] = typer.Option([], "--only", help="Roda apenas estas regras (por id)."),
     skip: list[str] = typer.Option([], "--skip", help="Pula estas regras (por id)."),
     skip_category: list[str] = typer.Option(
@@ -147,15 +189,16 @@ def scan(
 ) -> None:
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
-    config = _build_config(only, skip, skip_category, no_entropy, scan_lockfiles)
+    config = _build_config(
+        only, skip, skip_category, no_entropy, scan_lockfiles, max_file_size, max_line_length
+    )
     scanner = Scanner(config=config)
 
     if git_history:
-        repo = targets[0]
         try:
-            result = scanner.scan_git_history(repo)
+            result = scanner.scan_git_history(targets[0], permitir_shallow=permitir_shallow)
         except GitError as exc:
-            err_console.print(f"[red]Não foi possível ler o histórico Git:[/] {exc}")
+            err_console.print("[red]Não foi possível ler o histórico Git:[/]", txt(exc))
             raise typer.Exit(2) from exc
     else:
         result = scanner.scan_paths(targets)
@@ -180,24 +223,30 @@ def scan(
     raise typer.Exit(_exit_code(result, fail_on))
 
 
-@app.command()
-def rules() -> None:
+@app.command("regras")
+def regras() -> None:
     """Lista todas as regras de detecção."""
     table = Table(title="Regras do Guardião", header_style="bold")
     table.add_column("ID", no_wrap=True)
     table.add_column("Severidade", no_wrap=True)
     table.add_column("Categoria", no_wrap=True)
     table.add_column("Descrição")
-    table.add_column("OWASP / CWE", no_wrap=True)
+    # O ANO da edição do OWASP vive no CABEÇALHO; a célula usa o código curto.
+    # 'A03' significa coisas diferentes em 2021 e em 2025 — o ano não pode sumir.
+    table.add_column("OWASP 2025 / CWE", no_wrap=True)
     for rule in all_rules():
+        codigo = (rule.owasp or "—").split(" ")[0]
         table.add_row(
             rule.id,
             rule.severity.value,
             rule.category,
             rule.title,
-            f"{rule.owasp or '—'} · {rule.cwe or '—'}",
+            f"{codigo} · {rule.cwe or '—'}",
         )
     Console().print(table)
+
+
+app.command("rules", help="Alias de `regras`.")(regras)
 
 
 @app.command("pre-commit")
@@ -205,24 +254,31 @@ def pre_commit(
     fail_on: FailOn = typer.Option(
         FailOn.medium, "--fail-on", help="Severidade que bloqueia o commit."
     ),
+    baseline: Path | None = typer.Option(
+        None, "--baseline", help="Suprime achados presentes neste baseline."
+    ),
+    no_entropy: bool = typer.Option(False, "--no-entropy", help="Desliga a regra por entropia."),
+    scan_lockfiles: bool = typer.Option(
+        False, "--scan-lockfiles", help="Também varre lockfiles/gerados."
+    ),
+    only: list[str] = typer.Option([], "--only", help="Roda apenas estas regras (por id)."),
+    skip: list[str] = typer.Option([], "--skip", help="Pula estas regras (por id)."),
+    skip_category: list[str] = typer.Option(
+        [], "--skip-category", help="Pula categorias inteiras (ex.: pii)."
+    ),
 ) -> None:
-    """Varre o conteúdo **em stage** — para uso como hook de pre-commit."""
-    paths = _staged_paths()
-    if not paths:
-        typer.echo("Nada em stage. Nada a verificar.")
-        raise typer.Exit(0)
+    """Varre o conteúdo **em stage** — para uso como hook de pre-commit.
 
-    scanner = Scanner()
-    findings: list[Finding] = []
-    scanned = 0
-    for path in paths:
-        content = _staged_content(path)
-        if content is None:
-            continue
-        scanned += 1
-        findings.extend(scanner.scan_text(path, content))
-    findings.sort(key=lambda f: (-f.severity.rank, f.location.path, f.location.line))
-    result = ScanResult(findings=findings, units_scanned=scanned)
+    Usa a MESMA `Config` e o mesmo motor do `scan`: um arquivo que o CI considera
+    limpo não pode bloquear o commit (e vice-versa).
+    """
+    config = _build_config(only, skip, skip_category, no_entropy, scan_lockfiles)
+    scanner = Scanner(config=config)
+    skipped: dict[str, int] = {}
+    result = scanner.scan_units(_staged_units(config, skipped), skipped)
+
+    if baseline is not None and baseline.exists():
+        result.findings, _ = apply_baseline(result.findings, load_baseline(baseline))
 
     if result.findings:
         console_report.render(result)
@@ -230,9 +286,34 @@ def pre_commit(
             "\n[bold red]Commit bloqueado:[/] possível segredo em stage. "
             "Remova/rotacione, ou marque a linha com [bold]# guardiao:allow[/] se for falso-positivo."
         )
+    elif result.units_scanned == 0:
+        typer.echo("Nada em stage. Nada a verificar.")
     else:
-        typer.echo(f"✓ {scanned} arquivo(s) em stage sem segredos.")
+        typer.echo(f"✓ {result.units_scanned} arquivo(s) em stage sem segredos.")
     raise typer.Exit(_exit_code(result, fail_on))
+
+
+def _staged_units(config: Config, skipped: dict[str, int]) -> list[tuple[str, str, str | None]]:
+    """Unidades a partir do índice do Git, filtradas pela mesma Config do `scan`."""
+    units: list[tuple[str, str, str | None]] = []
+    for path in _staged_paths():
+        if Path(path).suffix.lower() in config.binary_exts:
+            skipped["binario"] = skipped.get("binario", 0) + 1
+            continue
+        if config.is_noise_file(Path(path).name):
+            skipped["ruido"] = skipped.get("ruido", 0) + 1
+            continue
+        raw = _git_bytes("show", f":{path}")
+        if raw is None:
+            continue
+        if b"\x00" in raw[:8192]:
+            skipped["binario"] = skipped.get("binario", 0) + 1
+            continue
+        if len(raw) > config.max_file_size:
+            skipped["tamanho"] = skipped.get("tamanho", 0) + 1
+            continue
+        units.append((path, raw.decode("utf-8", errors="replace"), None))
+    return units
 
 
 def _staged_paths() -> list[str]:
@@ -241,14 +322,6 @@ def _staged_paths() -> list[str]:
     if out is None:
         return []
     return [p for p in out.split("\x00") if p]
-
-
-def _staged_content(path: str) -> str | None:
-    """Conteúdo do arquivo **como está em stage** (índice), não o do working tree."""
-    raw = _git_bytes("show", f":{path}")
-    if raw is None or b"\x00" in raw[:8192]:
-        return None
-    return raw.decode("utf-8", errors="replace")
 
 
 def _git(*args: str) -> str | None:

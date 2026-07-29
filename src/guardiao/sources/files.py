@@ -8,20 +8,29 @@ from pathlib import Path
 from guardiao.core.config import Config
 
 
-def iter_files(root: Path, config: Config) -> Iterator[Path]:
-    """Percorre ``root`` devolvendo arquivos elegíveis para varredura."""
+def iter_files(root: Path, config: Config, skipped: dict[str, int] | None = None) -> Iterator[Path]:
+    """Percorre ``root`` devolvendo arquivos elegíveis para varredura.
+
+    ``skipped`` (opcional) acumula quantos arquivos foram descartados por motivo —
+    é o que permite ao relatório dizer o que **não** foi analisado.
+    """
+    contador = {} if skipped is None else skipped
     root = Path(root)
+    try:
+        raiz_real = root.resolve()
+    except OSError:  # pragma: no cover - fs edge
+        return
     if root.is_file():
-        if _eligible(root, config):
+        if _eligible(root, config, contador):
             yield root
         return
 
-    for path in _walk(root, config):
-        if _eligible(path, config):
+    for path in _walk(root, raiz_real, config):
+        if _eligible(path, config, contador):
             yield path
 
 
-def _walk(root: Path, config: Config) -> Iterator[Path]:
+def _walk(root: Path, raiz_real: Path, config: Config) -> Iterator[Path]:
     stack = [root]
     while stack:
         current = stack.pop()
@@ -30,7 +39,7 @@ def _walk(root: Path, config: Config) -> Iterator[Path]:
         except (PermissionError, OSError):  # pragma: no cover - fs edge
             continue
         for entry in entries:
-            if entry.is_symlink():
+            if not _contido_na_raiz(entry, raiz_real):
                 continue
             if entry.is_dir():
                 if _skip_dir(entry, config):
@@ -38,6 +47,20 @@ def _walk(root: Path, config: Config) -> Iterator[Path]:
                 stack.append(entry)
             elif entry.is_file():
                 yield entry
+
+
+def _contido_na_raiz(entry: Path, raiz_real: Path) -> bool:
+    """Verdadeiro se ``entry`` continua **dentro** da árvore pedida, após resolver links.
+
+    Checar contenção pelo caminho real — em vez de perguntar ``is_symlink()`` — é o
+    que fecha a *junction* do Windows (``mklink /J``, que não exige administrador):
+    para o Python ela **não** é symlink, então a varredura saía da árvore e reportava
+    arquivos de fora do diretório que o usuário mandou varrer.
+    """
+    try:
+        return entry.resolve().is_relative_to(raiz_real)
+    except OSError:  # pragma: no cover - fs edge
+        return False
 
 
 def _skip_dir(entry: Path, config: Config) -> bool:
@@ -58,13 +81,16 @@ def _skip_dir(entry: Path, config: Config) -> bool:
     return False
 
 
-def _eligible(path: Path, config: Config) -> bool:
+def _eligible(path: Path, config: Config, skipped: dict[str, int]) -> bool:
     if path.suffix.lower() in config.binary_exts:
+        skipped["binario"] = skipped.get("binario", 0) + 1
         return False
     if config.is_noise_file(path.name):
+        skipped["ruido"] = skipped.get("ruido", 0) + 1
         return False
     try:
         if path.stat().st_size > config.max_file_size:
+            skipped["tamanho"] = skipped.get("tamanho", 0) + 1
             return False
     except OSError:  # pragma: no cover - fs edge
         return False

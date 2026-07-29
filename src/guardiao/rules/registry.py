@@ -13,13 +13,9 @@ def all_rules() -> list[Rule]:
     return rules
 
 
-def rules_by_id() -> dict[str, Rule]:
-    return {rule.id: rule for rule in all_rules()}
-
-
 def _assert_unique_ids(rules: list[Rule]) -> None:
     seen: set[str] = set()
     for rule in rules:
-        if rule.id in seen:  # pragma: no cover - proteção de desenvolvimento
+        if rule.id in seen:
             raise ValueError(f"regra duplicada: {rule.id}")
         seen.add(rule.id)

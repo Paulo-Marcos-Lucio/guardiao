@@ -1,21 +1,17 @@
-"""Definição de uma regra de detecção."""
+"""Definição de uma regra de detecção.
+
+Uma regra é **dado**, não código: o motor (``core/engine.py``) é quem sabe
+percorrer a linha, aplicar filtros e montar o achado. Aqui só há o dataclass
+declarativo e o construtor que compila a regex.
+"""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from guardiao.core.models import Severity
-
-
-@dataclass(frozen=True)
-class RuleMatch:
-    """Um trecho casado por uma regra dentro de uma linha."""
-
-    start: int
-    end: int
-    secret: str
 
 
 @dataclass(frozen=True)
@@ -23,8 +19,15 @@ class Rule:
     """Regra baseada em expressão regular.
 
     ``secret_group`` indica qual grupo da regex contém o segredo em si (0 = o
-    casamento inteiro). ``min_entropy`` e ``keywords`` são filtros aplicados pelo
-    motor para reduzir falso-positivo.
+    casamento inteiro). ``min_entropy``, ``keywords``, ``validator`` e
+    ``only_files`` são filtros aplicados **pelo motor** para reduzir
+    falso-positivo:
+
+    - ``keywords``: alguma delas precisa aparecer na linha (contexto de segredo);
+    - ``validator``: predicado sobre o valor casado (ex.: dígito verificador de CPF);
+    - ``only_files``: a regra só vale para arquivos cujo *nome* case um destes
+      padrões :mod:`fnmatch` (ex.: ``.env`` — onde o formato ``CHAVE=valor`` sem
+      aspas é a norma, e fora dos quais ele seria ruído puro).
     """
 
     id: str
@@ -38,14 +41,8 @@ class Rule:
     secret_group: int = 0
     min_entropy: float | None = None
     keywords: tuple[str, ...] = field(default_factory=tuple)
-
-    def find(self, text: str) -> Iterator[RuleMatch]:
-        for match in self.regex.finditer(text):
-            group = self.secret_group
-            secret = match.group(group)
-            if secret is None:
-                continue
-            yield RuleMatch(match.start(group), match.end(group), secret)
+    validator: Callable[[str], bool] | None = None
+    only_files: tuple[str, ...] = field(default_factory=tuple)
 
 
 def compile_rule(
@@ -62,6 +59,8 @@ def compile_rule(
     secret_group: int = 0,
     min_entropy: float | None = None,
     keywords: tuple[str, ...] = (),
+    validator: Callable[[str], bool] | None = None,
+    only_files: tuple[str, ...] = (),
 ) -> Rule:
     return Rule(
         id=id,
@@ -75,4 +74,6 @@ def compile_rule(
         secret_group=secret_group,
         min_entropy=min_entropy,
         keywords=keywords,
+        validator=validator,
+        only_files=only_files,
     )

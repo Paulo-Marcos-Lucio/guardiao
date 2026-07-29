@@ -1,8 +1,10 @@
 """Baseline: aceitar achados conhecidos para o CI só falhar em segredos NOVOS.
 
-O baseline guarda apenas *fingerprints* e metadados ocultados — **jamais** o
-segredo cru. É o mesmo princípio do `detect-secrets`: você fotografa a dívida
-atual e passa a barrar só o que for introduzido depois.
+O baseline guarda apenas *fingerprints* e metadados ocultados — nunca o segredo
+cru **nem hash dele**: a fingerprint é derivada do valor já ocultado, justamente
+porque este arquivo é feito para ser versionado (ver :attr:`Finding.fingerprint`).
+É o mesmo princípio do `detect-secrets`: você fotografa a dívida atual e passa a
+barrar só o que for introduzido depois.
 """
 
 from __future__ import annotations
@@ -38,7 +40,10 @@ def build_baseline_document(findings: list[Finding]) -> dict[str, object]:
     return {
         "version": BASELINE_VERSION,
         "tool": "guardiao",
-        "note": "Fingerprints de achados aceitos. Não contém segredos.",
+        "note": (
+            "Fingerprints derivadas de regra + arquivo + valor ocultado — não permitem "
+            "recuperar o segredo. Rotacionou um segredo? rode --update-baseline."
+        ),
         "findings": entries,
     }
 

@@ -1,16 +1,27 @@
 """Catálogo de regras de detecção de segredos.
 
-Cada regra aponta para uma classe do OWASP Top 10 e um CWE. A recomendação
-assume o pior caso — que o segredo já vazou — e por isso sempre começa por
-**rotacionar/revogar**, não apenas remover do histórico.
+Cada regra aponta para uma classe do **OWASP Top 10:2025** e um CWE. A
+recomendação assume o pior caso — que o segredo já vazou — e por isso sempre
+começa por **rotacionar/revogar**, não apenas remover do histórico.
 """
 
 from __future__ import annotations
 
 import re
 
+from guardiao.core.entropy import MIN_SECRET_LEN
 from guardiao.core.models import Severity
 from guardiao.rules.base import Rule, compile_rule
+from guardiao.rules.br import cnpj_valido, cpf_valido
+
+#: Edição do OWASP Top 10 usada em todos os rótulos deste catálogo.
+OWASP_EDITION = "2025"
+
+_A01 = "A01:2025 Broken Access Control"
+_A02 = "A02:2025 Security Misconfiguration"
+_A03 = "A03:2025 Software Supply Chain Failures"
+_A04 = "A04:2025 Cryptographic Failures"
+_A07 = "A07:2025 Authentication Failures"
 
 _ROTATE = "Revogue/rotacione a credencial AGORA (o histórico Git é público mesmo após remoção), remova do código e injete via variável de ambiente ou cofre de segredos."
 
@@ -42,6 +53,76 @@ SECRET_CONTEXT: tuple[str, ...] = (
     "encryption",
 )
 
+# Contexto que, se presente na linha, DESLIGA a regra de entropia.
+# Entropia não distingue hash de segredo — os dois são cadeias aleatórias e
+# matematicamente idênticas. O único discriminante barato é o contexto: uma linha
+# que fala em `md5`, `etag` ou `integrity` está descrevendo um digest, não uma
+# credencial. Isso é uma heurística, não uma prova: um segredo numa linha que
+# também contenha "checksum" passa despercebido.
+HASH_CONTEXT: tuple[str, ...] = (
+    "hash",
+    "md5",
+    "sha1",
+    "sha256",
+    "sha512",
+    "checksum",
+    "digest",
+    "etag",
+    "integrity",
+    "fingerprint",
+    "revision",
+    "commit",
+    "idempotency",
+)
+
+# Palavras-chave que marcam uma atribuição como sensível na regra genérica.
+_CHAVE_SENSIVEL = (
+    "password|passwd|pwd|secret[_-]?key|secret|token|api[_-]?key|apikey"
+    "|access[_-]?key|client[_-]?secret|auth[_-]?token|private[_-]?key"
+)
+# Em camelCase, `...Token` e `...Key` são sufixos comuns de lexer/parser/AST
+# (`nextLastSignificantToken`, `UnexpectedToken`). Numa medição em 24.943 arquivos reais,
+# 48 dos 79 falso-positivos vinham daí, com ZERO verdadeiro-positivo — por isso o ramo
+# camelCase não aceita `token` nem `key` isolados.
+_CHAVE_SENSIVEL_CAMEL = (
+    "password|passwd|secret[_-]?key|client[_-]?secret|api[_-]?key|apikey"
+    "|access[_-]?key|auth[_-]?token|private[_-]?key"
+)
+# Fronteira por caractere alfanumérico (e não `\b`): `\b` não existe entre `_` e letra,
+# então `DB_PASSWORD`, `JWT_SECRET` e `DJANGO_SECRET_KEY` não casavam `\bpassword\b`.
+_ANCORA_CHAVE = (
+    rf"(?:(?<![A-Za-z0-9])(?i:{_CHAVE_SENSIVEL})"
+    rf"|(?<=[a-z0-9])(?=[A-Z])(?i:{_CHAVE_SENSIVEL_CAMEL}))(?![A-Za-z0-9])"
+)
+
+# Cadeia longa candidata a segredo. `=` sai do corpo e dos lookarounds (senão a regra
+# capturava `NOME=VALOR` inteiro como se o nome da variável fizesse parte do segredo);
+# fica só como padding base64 no fim. Sem teto de comprimento: o teto real de custo é
+# o `max_line_length` do motor, e um segredo LONGO não pode ser menos visível que um curto.
+_ENTROPIA_PATTERN = (
+    r"(?<![A-Za-z0-9+/_-])([A-Za-z0-9+/_-]{" + str(MIN_SECRET_LEN) + r",}={0,2})(?![A-Za-z0-9+/_-])"
+)
+
+# `.env` e amigos: ali `CHAVE=valor` sem aspas é o formato normal, e restringir a regra
+# a esses arquivos mantém o falso-positivo em zero por construção (em código-fonte,
+# `token = alguma_funcao()` é uma das linhas mais comuns que existem).
+_ARQUIVOS_DOTENV = (
+    ".env",
+    ".env.*",
+    "*.env",
+    ".envrc",
+    "!*.example",
+    "!*.sample",
+    "!*.template",
+    "!*.dist",
+)
+_DOTENV_PATTERN = (
+    r"^[ \t]*(?:export[ \t]+)?[A-Za-z0-9_]*"
+    rf"(?<![A-Za-z0-9])(?i:{_CHAVE_SENSIVEL})(?![A-Za-z0-9])"
+    r"[A-Za-z0-9_]*[ \t]*=[ \t]*"
+    r"""([^\s"'\n(){}\[\]$;,<>]{8,80})[ \t]*$"""
+)
+
 
 def default_rules() -> list[Rule]:
     return [
@@ -51,7 +132,7 @@ def default_rules() -> list[Rule]:
             Severity.CRITICAL,
             r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
             cwe="CWE-321",
-            owasp="A02:2021 Cryptographic Failures",
+            owasp=_A04,
             recommendation="Chave privada exposta compromete TLS/mTLS/assinaturas. " + _ROTATE,
         ),
         compile_rule(
@@ -61,7 +142,7 @@ def default_rules() -> list[Rule]:
             r"\b((?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[A-Z0-9]{16})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Chave de acesso AWS. Desative a chave no IAM e gere outra. " + _ROTATE,
         ),
         compile_rule(
@@ -72,7 +153,7 @@ def default_rules() -> list[Rule]:
             secret_group=1,
             min_entropy=4.2,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Segredo de acesso AWS. " + _ROTATE,
         ),
         compile_rule(
@@ -82,7 +163,7 @@ def default_rules() -> list[Rule]:
             r"\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,255})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A07:2021 Identification and Authentication Failures",
+            owasp=_A07,
             recommendation="Token do GitHub. Revogue em Settings > Developer settings. " + _ROTATE,
         ),
         compile_rule(
@@ -92,7 +173,7 @@ def default_rules() -> list[Rule]:
             r"\b(github_pat_[0-9A-Za-z_]{22,255})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A07:2021 Identification and Authentication Failures",
+            owasp=_A07,
             recommendation="Token fine-grained do GitHub. " + _ROTATE,
         ),
         compile_rule(
@@ -102,7 +183,7 @@ def default_rules() -> list[Rule]:
             r"\b(glpat-[0-9A-Za-z_-]{20,50})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A07:2021 Identification and Authentication Failures",
+            owasp=_A07,
             recommendation="Token de acesso pessoal do GitLab (prefixo glpat-). "
             "Revogue em User Settings > Access Tokens. " + _ROTATE,
         ),
@@ -113,7 +194,7 @@ def default_rules() -> list[Rule]:
             r"\b(npm_[0-9A-Za-z]{36})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A08:2021 Software and Data Integrity Failures",
+            owasp=_A03,
             recommendation="Token de acesso do npm (prefixo npm_) permite publicar pacotes — "
             "risco de supply chain. Revogue em npmjs.com > Access Tokens. " + _ROTATE,
         ),
@@ -124,7 +205,7 @@ def default_rules() -> list[Rule]:
             r"\b(AIza[0-9A-Za-z_\-]{35})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Chave de API do Google. Restrinja/rotacione no Cloud Console. "
             + _ROTATE,
         ),
@@ -135,7 +216,7 @@ def default_rules() -> list[Rule]:
             r"\b(xox[baprs]-[0-9A-Za-z-]{10,48})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Token do Slack. " + _ROTATE,
         ),
         compile_rule(
@@ -145,7 +226,7 @@ def default_rules() -> list[Rule]:
             r"(https://hooks\.slack\.com/services/T[A-Za-z0-9_]+/B[A-Za-z0-9_]+/[A-Za-z0-9_]{16,})",
             secret_group=1,
             cwe="CWE-200",
-            owasp="A01:2021 Broken Access Control",
+            owasp=_A01,
             recommendation="Webhook do Slack permite postar como o app. " + _ROTATE,
         ),
         compile_rule(
@@ -155,7 +236,7 @@ def default_rules() -> list[Rule]:
             r"\b(SG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43})(?![0-9A-Za-z_-])",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Chave de API do SendGrid (prefixo SG.) permite enviar e-mail em seu "
             "domínio — risco de phishing/spoofing. Revogue no painel do SendGrid. " + _ROTATE,
         ),
@@ -166,7 +247,7 @@ def default_rules() -> list[Rule]:
             r"\b(SK[0-9a-f]{32})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="API Key SID do Twilio (SK + 32 hex) autentica envio de SMS/voz e "
             "gera custo na conta. Revogue no Console do Twilio (Account > API keys & tokens). "
             + _ROTATE,
@@ -178,7 +259,7 @@ def default_rules() -> list[Rule]:
             r"\b((?:dop|doo|dor)_v1_[0-9a-f]{64})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Token de acesso da DigitalOcean (dop_/doo_/dor_v1_) dá acesso de "
             "API à infraestrutura (droplets, DNS, storage, faturamento). Revogue em API > Tokens. "
             + _ROTATE,
@@ -190,7 +271,7 @@ def default_rules() -> list[Rule]:
             r"\b(hf_[A-Za-z0-9]{34,64})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A08:2021 Software and Data Integrity Failures",
+            owasp=_A03,
             recommendation="Token de acesso do Hugging Face (prefixo hf_). Um token de escrita "
             "pode publicar em repositórios de modelos/datasets — risco de supply chain de ML. "
             "Revogue em Settings > Access Tokens. " + _ROTATE,
@@ -202,7 +283,7 @@ def default_rules() -> list[Rule]:
             r"\b(APP_USR-\d+-\d{6}-[0-9a-f]{32}-\d+)\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Access token de produção do Mercado Pago (APP_USR-...) dá acesso "
             "de backend à conta de pagamentos. Revogue e gere outro no painel de credenciais "
             "(Suas integrações). " + _ROTATE,
@@ -214,7 +295,7 @@ def default_rules() -> list[Rule]:
             r"\b((?:sk|rk)_live_[0-9a-zA-Z]{24,99})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Chave secreta de produção da Stripe. Roll da chave no dashboard. "
             + _ROTATE,
         ),
@@ -225,7 +306,7 @@ def default_rules() -> list[Rule]:
             r"\b(shp(?:at|ca|pa|ss)_[a-fA-F0-9]{32})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Credencial da Shopify (shpat_/shpca_/shppa_ = access token; "
             "shpss_ = shared secret) dá acesso à Admin API da loja — pedidos, clientes e "
             "dados sensíveis. Desinstale/reinstale o app na loja ou gire o segredo no "
@@ -238,7 +319,7 @@ def default_rules() -> list[Rule]:
             r"\b(dp\.pt\.[A-Za-z0-9]{43})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Token pessoal do Doppler (dp.pt.) é chave-mestra de um gestor de "
             "segredos: dá acesso a TODOS os segredos das configs a que o usuário tem acesso. "
             "Revogue em Dashboard > Tokens e trate os segredos expostos como comprometidos. "
@@ -251,7 +332,7 @@ def default_rules() -> list[Rule]:
             r"\b(lin_api_[A-Za-z0-9]{40})\b",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A07:2021 Identification and Authentication Failures",
+            owasp=_A07,
             recommendation="Chave de API pessoal do Linear (lin_api_) autentica na API do "
             "workspace — issues, projetos e roadmap. Revogue em Settings > Security & access "
             "> API. " + _ROTATE,
@@ -263,7 +344,7 @@ def default_rules() -> list[Rule]:
             r"\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b",
             secret_group=1,
             cwe="CWE-522",
-            owasp="A07:2021 Identification and Authentication Failures",
+            owasp=_A07,
             recommendation="JWT no código. Se for de sessão/serviço, invalide-o. "
             "Confirme se não carrega dados sensíveis no payload (é apenas base64, não é cifrado).",
         ),
@@ -271,46 +352,58 @@ def default_rules() -> list[Rule]:
             "db-connection-uri",
             "URI de banco com credenciais",
             Severity.HIGH,
+            # O usuário pode ser VAZIO: a forma canônica do Redis (e do AMQP com vhost
+            # padrão) omite o usuário — `redis://` seguido de `:senha@host` — e é assim
+            # que o redis-cli, o Sidekiq e o REDIS_URL do Heroku a escrevem.
             r"\b((?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps)://"
-            r"[^:@\s/]+:[^@\s/]{1,}@[^\s'\"]+)",
+            r"[^:@\s/]*:[^@\s/]+@[^\s'\"]+)",
             secret_group=1,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="String de conexão com usuário e senha embutidos. " + _ROTATE,
         ),
         compile_rule(
             "basic-auth-url",
             "Credencial em URL (Basic Auth)",
             Severity.MEDIUM,
-            r"\b(https?://[^:@\s/]+:[^@\s/]{3,}@[^\s'\"]+)",
+            r"\b(https?://[^:@\s/]*:[^@\s/]{3,}@[^\s'\"]+)",
             secret_group=1,
             cwe="CWE-522",
-            owasp="A07:2021 Identification and Authentication Failures",
+            owasp=_A07,
             recommendation="Usuário:senha embutidos na URL vazam em logs e histórico. " + _ROTATE,
         ),
         compile_rule(
             "generic-assignment",
             "Segredo genérico atribuído a chave sensível",
             Severity.MEDIUM,
-            r"""(?i)\b(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|"""
-            r"""access[_-]?key|client[_-]?secret|auth[_-]?token|private[_-]?key)\b"""
-            r"""["' ]?\s*[:=]\s*["']([^"'\n]{8,80})["']""",
+            _ANCORA_CHAVE + r"""["' ]?\s*[:=]\s*["']([^"'\n]{8,})["']""",
             secret_group=1,
-            min_entropy=3.2,
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
-            recommendation="Valor de alta entropia atribuído a uma chave sensível. " + _ROTATE,
+            owasp=_A02,
+            recommendation="Valor de aparência secreta atribuído a uma chave sensível. " + _ROTATE,
+        ),
+        compile_rule(
+            "dotenv-assignment",
+            "Segredo em arquivo .env (valor sem aspas)",
+            Severity.HIGH,
+            _DOTENV_PATTERN,
+            secret_group=1,
+            only_files=_ARQUIVOS_DOTENV,
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Credencial em texto claro num arquivo de ambiente versionado. "
+            "Tire o arquivo do controle de versão (.gitignore). " + _ROTATE,
         ),
         compile_rule(
             "high-entropy-string",
             "String de alta entropia (possível segredo)",
             Severity.MEDIUM,
-            r"(?<![A-Za-z0-9+/=_-])([A-Za-z0-9+/=_-]{24,120})(?![A-Za-z0-9+/=_-])",
+            _ENTROPIA_PATTERN,
             secret_group=1,
             category="entropy",
             keywords=SECRET_CONTEXT,  # só dispara perto de palavra de contexto de segredo
             cwe="CWE-798",
-            owasp="A05:2021 Security Misconfiguration",
+            owasp=_A02,
             recommendation="Cadeia longa e aleatória com cara de segredo. Confirme se não é "
             "credencial/chave; se for, " + _ROTATE,
         ),
@@ -321,8 +414,9 @@ def default_rules() -> list[Rule]:
             r"\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b",
             secret_group=1,
             category="pii",
+            validator=lambda valor: cpf_valido(valor) and valor not in CPF_DE_TUTORIAL,
             cwe="CWE-359",
-            owasp="A02:2021 / LGPD art. 46",
+            owasp="A04:2025 / LGPD art. 46",
             recommendation="CPF em texto claro é dado pessoal (LGPD). Remova de logs/código, "
             "minimize e proteja o tratamento; considere anonimização/pseudonimização.",
         ),
@@ -333,18 +427,25 @@ def default_rules() -> list[Rule]:
             r"\b(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})\b",
             secret_group=1,
             category="pii",
+            validator=cnpj_valido,
             cwe="CWE-359",
-            owasp="A02:2021 / LGPD",
+            owasp="A04:2025 / LGPD",
             recommendation="CNPJ em texto claro. Avalie se precisa estar versionado no repositório.",
         ),
     ]
 
 
+# CPFs que passam no módulo 11 mas aparecem em todo tutorial/fixture brasileiro.
+CPF_DE_TUTORIAL: frozenset[str] = frozenset({"123.456.789-09", "111.444.777-35"})
+
 # Valores obviamente de exemplo/placeholder que não devem gerar achado.
+# NÃO inclua sequências que possam cair por acaso dentro de um segredo real
+# (`abcdefgh`, `1234567890`): elas suprimiam em silêncio senhas humanas legítimas
+# como `Cliente1234567890`. Valor de exemplo por INTEIRO é tratado por
+# `_WEAK_EXAMPLE_VALUES` e `_REPEATED`, que não têm esse efeito colateral.
 PLACEHOLDER_SUBSTRINGS: tuple[str, ...] = (
     "example",
     "exemplo",
-    "changeme",
     "change-me",
     "placeholder",
     "your_",
@@ -360,8 +461,11 @@ PLACEHOLDER_SUBSTRINGS: tuple[str, ...] = (
     "xxxxxxxx",
     "foobar",
     "0000000000000000",
-    "1234567890",
-    "abcdefgh",
+    "fakekey",
+    "fake-",
+    "fake_",
+    "mock",
+    "stub",
 )
 
 # Exemplos canônicos da documentação de fornecedores.
@@ -375,10 +479,13 @@ KNOWN_FAKE_SECRETS: frozenset[str] = frozenset(
 _REPEATED = re.compile(r"^(.)\1{7,}$")
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _GIT_SHA = re.compile(r"^[0-9a-fA-F]{40}$")  # SHA-1 de commit / action pinada
+# Interpolação de template (`${VAR}`, `{{ var }}`, `{NOME_DA_VAR}`) — é a receita do
+# segredo, não o segredo.
+_TEMPLATE = re.compile(r"\$\{|\{\{|\{[A-Z][A-Z0-9_]{2,}\}|<[A-Za-z][A-Za-z0-9_-]*>")
 
 # Credencial embutida em URL de EXEMPLO/teste (docs, fixtures de parser) — não é vazamento real.
 _URL_CRED = re.compile(
-    r"^[a-z][a-z0-9+.\-]*://(?P<user>[^:@/\s]+):(?P<pw>[^@/\s]+)@(?P<host>[^/:\s]+)",
+    r"^[a-z][a-z0-9+.\-]*://(?P<user>[^:@/\s]*):(?P<pw>[^@/\s]+)@(?P<host>[^/:\s]+)",
     re.IGNORECASE,
 )
 _EXAMPLE_HOST = re.compile(
@@ -389,7 +496,7 @@ _EXAMPLE_HOST = re.compile(
     r"|.+\.(?:example|test|local|localhost|invalid))$",
     re.IGNORECASE,
 )
-_PLACEHOLDER_USERS = frozenset({"user", "username", "test", "foo", "bar", "me"})
+_PLACEHOLDER_USERS = frozenset({"", "user", "username", "test", "foo", "bar", "me"})
 _PLACEHOLDER_PWS = frozenset(
     {"pass", "password", "passwd", "secret", "changeme", "test", "foo", "bar", "123456"}
 )
@@ -417,6 +524,7 @@ _WEAK_EXAMPLE_VALUES: frozenset[str] = frozenset(
         "qwerty",
         "123456",
         "12345678",
+        "1234567890",
     }
 )
 
@@ -439,20 +547,37 @@ def _is_example_url_cred(secret: str) -> bool:
     return user_ph and pw_ph  # user E senha placeholder (não suprime vazamento real)
 
 
-def looks_like_placeholder(secret: str) -> bool:
-    """Heurística barata para descartar valores de exemplo/documentação."""
+def is_obvious_fake(secret: str) -> bool:
+    """Descarte que vale para **todas** as regras: valor de exemplo por inteiro.
+
+    Só casa o valor COMPLETO (ou a estrutura completa, no caso de URL/template), então
+    nunca engole um segredo real por coincidência de substring.
+    """
     if secret in KNOWN_FAKE_SECRETS:
         return True
-    lowered = secret.lower()
-    if lowered in _WEAK_EXAMPLE_VALUES:
-        return True
-    if any(sub in lowered for sub in PLACEHOLDER_SUBSTRINGS):
+    if secret.lower() in _WEAK_EXAMPLE_VALUES:
         return True
     if _REPEATED.match(secret):
+        return True
+    if _TEMPLATE.search(secret):
         return True
     return _is_example_url_cred(secret)
 
 
+def looks_like_placeholder(secret: str) -> bool:
+    """Heurística barata para descartar valores de exemplo/documentação."""
+    if is_obvious_fake(secret):
+        return True
+    lowered = secret.lower()
+    return any(sub in lowered for sub in PLACEHOLDER_SUBSTRINGS)
+
+
 def is_probable_hash_or_id(token: str) -> bool:
-    """UUID ou SHA-1 de 40 hex (commit/pin de action) — estrutura de hash, não de segredo."""
+    """UUID ou SHA-1 de 40 hex (commit/pin de action) — estrutura de hash, não de segredo.
+
+    Deliberadamente **não** cobre 32 hex (MD5) nem 64 hex (SHA-256): esses são
+    exatamente os comprimentos de `openssl rand -hex 16/32`, ou seja, de segredos
+    reais. Hash desses tamanhos é filtrado por :data:`HASH_CONTEXT`, pelo contexto
+    da linha — não pela forma do token.
+    """
     return bool(_UUID.match(token) or _GIT_SHA.match(token))

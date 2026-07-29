@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://img.shields.io/badge/mypy-strict-2A6DB2.svg)](https://mypy-lang.org/)
-[![OWASP](https://img.shields.io/badge/OWASP-A05%2FA07-000000.svg)](https://owasp.org/Top10/)
+[![OWASP](https://img.shields.io/badge/OWASP_Top_10-2025-000000.svg)](https://owasp.org/Top10/)
 
 </div>
 
@@ -34,38 +34,58 @@ O Guardião foi feito para os dois momentos:
 
 ## 🔎 O que ele detecta
 
-| Regra | Detecta | Severidade | OWASP / CWE |
+> Os códigos abaixo são do **OWASP Top 10:2025**. Atenção: `A03` significa coisas
+> diferentes em 2021 e em 2025 — por isso a edição está sempre declarada
+> (`owasp_edition` no JSON e no SARIF, e no cabeçalho da coluna em `guardiao regras`).
+
+| Regra | Detecta | Severidade | OWASP 2025 / CWE |
 | --- | --- | --- | --- |
-| `private-key` | Chave privada PEM/OpenSSH (RSA, EC, DSA, ENCRYPTED) | 🔴 Crítica | A02 · CWE-321 |
-| `stripe-secret-key` | Chave de produção da Stripe (`sk_live`/`rk_live`) | 🔴 Crítica | A05 · CWE-798 |
-| `aws-access-key-id` / `aws-secret-access-key` | Credenciais AWS | 🟠 Alta | A05 · CWE-798 |
+| `private-key` | Chave privada PEM/OpenSSH (RSA, EC, DSA, ENCRYPTED) | 🔴 Crítica | A04 · CWE-321 |
+| `stripe-secret-key` | Chave de produção da Stripe (`sk_live`/`rk_live`) | 🔴 Crítica | A02 · CWE-798 |
+| `aws-access-key-id` / `aws-secret-access-key` | Credenciais AWS | 🟠 Alta | A02 · CWE-798 |
 | `github-token` / `github-pat-fine-grained` | Tokens do GitHub (PAT, OAuth, App) | 🟠 Alta | A07 · CWE-798 |
-| `mercadopago-access-token` | Access token de produção do Mercado Pago (`APP_USR-…`) | 🔴 Crítica | A05 · CWE-798 |
-| `google-api-key` | Chave de API do Google | 🟠 Alta | A05 · CWE-798 |
+| `mercadopago-access-token` | Access token de produção do Mercado Pago (`APP_USR-…`) | 🔴 Crítica | A02 · CWE-798 |
+| `google-api-key` | Chave de API do Google | 🟠 Alta | A02 · CWE-798 |
 | `gitlab-pat` | Personal Access Token do GitLab (`glpat-`) | 🟠 Alta | A07 · CWE-798 |
-| `npm-token` | Token de acesso do npm (`npm_`) | 🟠 Alta | A08 · CWE-798 |
-| `sendgrid-api-key` | Chave de API do SendGrid (`SG.`) | 🟠 Alta | A05 · CWE-798 |
-| `twilio-api-key` | API Key SID do Twilio (`SK` + 32 hex) | 🟠 Alta | A05 · CWE-798 |
-| `digitalocean-token` | Token de acesso da DigitalOcean (`dop_`/`doo_`/`dor_v1_`) | 🟠 Alta | A05 · CWE-798 |
-| `huggingface-token` | Token de acesso do Hugging Face (`hf_`) | 🟠 Alta | A08 · CWE-798 |
-| `shopify-token` | Access token / shared secret da Shopify (`shpat_`/`shpca_`/`shppa_`/`shpss_`) | 🟠 Alta | A05 · CWE-798 |
-| `doppler-token` | Token pessoal do Doppler (`dp.pt.`) — gestor de segredos | 🔴 Crítica | A05 · CWE-798 |
+| `npm-token` | Token de acesso do npm (`npm_`) — supply chain | 🟠 Alta | A03 · CWE-798 |
+| `sendgrid-api-key` | Chave de API do SendGrid (`SG.`) | 🟠 Alta | A02 · CWE-798 |
+| `twilio-api-key` | API Key SID do Twilio (`SK` + 32 hex) | 🟠 Alta | A02 · CWE-798 |
+| `digitalocean-token` | Token de acesso da DigitalOcean (`dop_`/`doo_`/`dor_v1_`) | 🟠 Alta | A02 · CWE-798 |
+| `huggingface-token` | Token de acesso do Hugging Face (`hf_`) — supply chain de ML | 🟠 Alta | A03 · CWE-798 |
+| `shopify-token` | Access token / shared secret da Shopify (`shpat_`/`shpca_`/`shppa_`/`shpss_`) | 🟠 Alta | A02 · CWE-798 |
+| `doppler-token` | Token pessoal do Doppler (`dp.pt.`) — gestor de segredos | 🔴 Crítica | A02 · CWE-798 |
 | `linear-api-key` | Chave de API pessoal do Linear (`lin_api_`) | 🟠 Alta | A07 · CWE-798 |
-| `slack-token` / `slack-webhook` | Token/Webhook do Slack | 🟠/🟡 | A05/A01 |
-| `db-connection-uri` | URI de banco com usuário:senha | 🟠 Alta | A05 · CWE-798 |
+| `slack-token` / `slack-webhook` | Token/Webhook do Slack | 🟠/🟡 | A02/A01 |
+| `db-connection-uri` | URI de banco com `usuário:senha` (usuário pode ser vazio: `redis://:senha@host`) | 🟠 Alta | A02 · CWE-798 |
 | `basic-auth-url` | Credencial embutida em URL | 🟡 Média | A07 · CWE-522 |
 | `jwt` | JSON Web Token no código | 🟡 Média | A07 · CWE-522 |
-| `generic-assignment` | Valor de **alta entropia** atribuído a chave sensível (`password`, `secret`, `api_key`…) | 🟡 Média | A05 · CWE-798 |
-| `cpf` / `cnpj` | Dado pessoal em texto claro (**LGPD**) | 🔵 Baixa/Info | A02 · CWE-359 |
+| `dotenv-assignment` | Valor **sem aspas** atribuído a chave sensível em `.env`/`.envrc`/`*.env` | 🟠 Alta | A02 · CWE-798 |
+| `generic-assignment` | Valor atribuído a chave sensível (`DB_PASSWORD`, `JWT_SECRET`, `apiKey`…) | 🟡 Média | A02 · CWE-798 |
+| `high-entropy-string` | Cadeia aleatória de 24+ chars perto de contexto de segredo | 🟡 Média | A02 · CWE-798 |
+| `cpf` / `cnpj` | Dado pessoal em texto claro, **com dígito verificador conferido** (**LGPD**) | 🔵 Baixa/Info | A04 · CWE-359 |
 
 Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (começando por *rotacionar*) e classificação **OWASP + CWE**.
 
 ### Como evita falso-positivo
 
-- **Entropia de Shannon** com limiares por alfabeto (hex ≠ base64) para os segredos genéricos.
-- **Filtro de placeholder**: descarta exemplos de documentação (`AKIAIOSFODNN7EXAMPLE`), `your-key-here`, valores repetidos, etc.
+- **Entropia com correção de viés.** O estimador de Shannon é enviesado para baixo em cadeias curtas (ele não pode passar de `log2(n)`), então comparar a um limiar fixo em bits/char cria falso-negativo dependente do comprimento. O critério usa **Miller-Madow** contra uma fração do máximo teórico do alfabeto do token. Medido em 5.992 segredos aleatórios × 12.206 cadeias reais extraídas de código: recall **85,3% → 94,9%** e falso-positivo **282 → 239** — ganha nos dois eixos.
+- **Contexto obrigatório.** A regra de entropia só dispara perto de `token`/`secret`/`key`/`password`… — inclusive em `DB_PASSWORD` e `accessToken`, que a fronteira `\b` não cobre.
+- **Contexto negativo.** Entropia **não** distingue hash de segredo (são matematicamente idênticos). Se a linha fala em `md5`/`etag`/`integrity`/`checksum`, o achado é descartado.
+- **Dígito verificador** em CPF/CNPJ (módulo 11): `000.000.000-00` não é dado pessoal.
+- **Filtro de placeholder**: descarta exemplos de documentação (`AKIAIOSFODNN7EXAMPLE`), `your-key-here`, `${VAR}`, valores repetidos. O relatório **informa quantos** valores foram descartados assim — a supressão é auditável, não silenciosa.
 - **Allowlist inline**: uma linha com `# guardiao:allow` (ou `pragma: allowlist secret`) é ignorada.
 - **Baseline**: aceita a dívida atual e passa a barrar só o que for **novo**.
+
+### 🚧 Limitações conhecidas
+
+Honestidade primeiro — o que esta ferramenta **não** faz:
+
+- **Não valida a credencial.** Um `sk_live_` já revogado é reportado igual a um ativo.
+- **Contexto negativo é heurística.** Um segredo numa linha que também contenha `checksum` ou `commit` é descartado junto com os hashes.
+- **CNPJ alfanumérico** (formato novo da Receita, `AA.AAA.AAA/AAAA-DD`) **não** é detectado — só o numérico.
+- **Segredo multilinha** (corpo de chave privada, JSON de service account) é detectado pelo cabeçalho, não pelo corpo: a varredura é linha a linha.
+- **Não reescreve histórico.** Achar é metade; `git filter-repo` e a rotação são trabalho separado.
+- **O que é pulado aparece no relatório** (`summary.skipped`): lockfile, binário, arquivo acima de `--max-file-size` e linha acima de `--max-line-length`. "Não olhei" e "olhei e está limpo" são saídas visualmente distintas.
 
 ---
 
@@ -74,10 +94,25 @@ Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (co
 Requer **Python 3.10+**.
 
 ```bash
+# direto do repositório (pipx isola o ambiente)
+pipx install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git"
+
+# ou, dentro de um venv:
+pip install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git"
+
+# desenvolvimento
 git clone https://github.com/Paulo-Marcos-Lucio/guardiao.git
-cd guardiao
-pip install .           # ou: pip install -e ".[dev]" para desenvolvimento
+cd guardiao && pip install -e ".[dev]"
 ```
+
+> ⚠️ **Não** existe pacote `guardiao` publicado por mim no PyPI. Se alguém publicar
+> um pacote com esse nome, `pip install guardiao` traria código de terceiro para
+> dentro do seu CI. Instale sempre por URL de repositório — e, em CI, **fixando o
+> SHA do commit**, que é a única referência imutável:
+>
+> ```bash
+> pip install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git@<sha-de-40-hex>"
+> ```
 
 ---
 
@@ -99,7 +134,7 @@ guardiao scan . --update-baseline
 guardiao scan . --baseline .guardiao-baseline.json --fail-on high
 
 # lista todas as regras
-guardiao rules
+guardiao regras          # `guardiao rules` é alias
 ```
 
 Principais opções do `scan`:
@@ -109,10 +144,43 @@ Principais opções do `scan`:
 | `-f, --format` | `console` (padrão), `json`, `sarif`. Repetível. |
 | `-o, --output` | Arquivo de saída (para um formato de arquivo). |
 | `--git-history` | Varre todos os blobs do histórico, não só a árvore atual. |
+| `--permitir-shallow` | Aceita rodar `--git-history` em clone raso (histórico incompleto). |
 | `--baseline` / `--update-baseline` | Suprime achados conhecidos / (re)grava o baseline. |
 | `--fail-on` | `none`/`info`/`low`/`medium`/`high`/`critical` — código de saída 1 para CI. |
 | `--only` / `--skip` / `--skip-category` | Filtra regras ou categorias (ex.: `--skip-category pii`). |
 | `--no-entropy` | Desliga a detecção por entropia. |
+| `--scan-lockfiles` | Também varre lockfiles/minificados (pulados por padrão). |
+| `--max-file-size` / `--max-line-length` | Tetos de varredura (padrão: 5 MB / 4.000 chars). |
+
+### Códigos de saída
+
+| Código | Significado |
+| --- | --- |
+| `0` | Varredura concluída; nada acima de `--fail-on`. |
+| `1` | Achado de severidade ≥ `--fail-on`. |
+| `2` | **Erro de uso**: id de regra/categoria inexistente, caminho inexistente, repositório sem Git, clone raso com `--git-history`. Nunca "verde silencioso". |
+
+### `--fail-on` na suíte AppSec
+
+O padrão **não** é o mesmo nas quatro ferramentas, e isso é decisão de projeto, não
+descuido: a consequência de uma credencial vazada é categoricamente pior que a de um
+cabeçalho HTTP ausente, então o scanner de segredos tem gatilho mais sensível.
+
+| Ferramenta | Padrão de `--fail-on` | Por quê |
+| --- | --- | --- |
+| **Guardião** (segredos) | `medium` | `generic-assignment`, `high-entropy-string` e CPF/CNPJ (LGPD) vivem na faixa média — subir para `high` desligaria o gate justamente onde ele paga. |
+| Chaveiro (JWT) | `high` | — |
+| Esteira (CI/CD) | `high` | — |
+| Sentinela (superfície web) | `alta` | — |
+
+Precisa alinhar? Passe `--fail-on` explicitamente em todas — nunca confie no padrão numa receita de CI.
+
+### Contrato do relatório JSON
+
+Formato `suite-appsec/1`, igual nas quatro ferramentas: chaves e valores de enumeração
+em inglês (são identificadores), texto para humano em pt-BR. `summary.by_severity` traz
+**sempre** as cinco severidades, inclusive zeradas, e `summary.skipped` diz o que **não**
+foi analisado. A chave do identificador do achado é `id`.
 
 ### Hook de pre-commit
 
@@ -132,13 +200,22 @@ repos:
 ### No GitHub Actions (com upload de SARIF)
 
 ```yaml
-- run: pip install guardiao
+- uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+  with:
+    fetch-depth: 0          # sem isto o --git-history só enxerga 1 commit
+    persist-credentials: false
+- run: pip install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git@<sha-de-40-hex>"
 - run: guardiao scan . --git-history -f sarif -o guardiao.sarif --fail-on high
-- uses: github/codeql-action/upload-sarif@v3
+- uses: github/codeql-action/upload-sarif@08d09a53f0f5d694f253bd25732e4429c9e9337f # v3
   if: always()
   with:
     sarif_file: guardiao.sarif
 ```
+
+O `fetch-depth: 0` não é detalhe: o padrão do `actions/checkout` é clone **raso**, e
+num clone raso `--git-history` só vê os commits baixados. O Guardião **aborta com
+exit 2** nesse caso em vez de reportar sucesso (use `--permitir-shallow` se você
+realmente quiser varrer o histórico parcial).
 
 ---
 
@@ -174,9 +251,10 @@ src/guardiao/
 
 Princípios de projeto:
 
-- **O segredo cru nunca sai.** Ele existe no objeto `Finding` só para gerar a *fingerprint* — os renderizadores usam exclusivamente o valor ocultado. Há teste garantindo que JSON e SARIF **não** contêm o segredo.
-- **Fingerprint estável** por `(regra, arquivo, hash do segredo)` — mover o código não invalida o baseline; trocar o segredo sim.
-- **Cada regra é dado, não código**: adicionar um detector é acrescentar uma entrada declarativa.
+- **O segredo cru nunca sai.** Ele existe no objeto `Finding` só para mascarar a linha de contexto; os renderizadores usam exclusivamente o valor ocultado. Há teste garantindo que console, JSON, SARIF e baseline **não** contêm o segredo.
+- **Fingerprint publicável.** A identidade de um achado é `sha256(regra ‖ arquivo ‖ valor ocultado)` — deliberadamente **sem** o segredo cru e **sem** a linha. Sem o segredo porque um hash truncado de senha humana é um compromisso quebrável em microssegundos, e essa fingerprint viaja no SARIF publicado no Code Scanning e no baseline que você versiona. Sem a linha para que mover o código não feche e reabra o alerta no GitHub.
+- **Cada regra é dado, não código**: adicionar um detector é acrescentar uma entrada declarativa (regex + severidade + filtros). O motor é quem percorre a linha.
+- **Um pipeline só**: `scan`, `pre-commit` e `--git-history` desembocam no mesmo `Scanner.scan_units` e usam a mesma `Config` — um arquivo que o CI considera limpo não pode bloquear o commit.
 
 ---
 

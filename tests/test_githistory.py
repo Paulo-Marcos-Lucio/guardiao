@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tracemalloc
 from pathlib import Path
 
 import pytest
 
+from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
+from guardiao.sources.githistory import GitError, iter_history_blobs
 from tests.conftest import AWS_KEY_ID
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git não disponível")
@@ -30,10 +33,15 @@ def _git(repo: Path, *args: str) -> None:
     )
 
 
-def test_secret_removed_from_tree_still_found_in_history(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
+def _repo(tmp_path: Path, nome: str = "repo") -> Path:
+    repo = tmp_path / nome
     repo.mkdir()
     _git(repo, "init", "-b", "main")
+    return repo
+
+
+def test_secret_removed_from_tree_still_found_in_history(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
 
     leaked = repo / "config.py"
     leaked.write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
@@ -53,3 +61,64 @@ def test_secret_removed_from_tree_still_found_in_history(tmp_path: Path) -> None
     aws = [f for f in history.findings if f.rule_id == "aws-access-key-id"]
     assert aws, "segredo não encontrado no histórico"
     assert aws[0].location.commit is not None
+
+
+def test_blob_solto_de_commit_amend_e_varrido(tmp_path: Path) -> None:
+    """`git commit --amend` é o jeito mais comum de "tirar" um segredo já commitado.
+    O blob antigo continua no repositório, mas `rev-list --objects --all` não o
+    lista — descartar blob sem caminho conhecido esvaziava o cenário-assinatura
+    da ferramenta e devolvia "✓ Nenhum segredo encontrado"."""
+    repo = _repo(tmp_path)
+    alvo = repo / "config.py"
+    alvo.write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(repo, "add", "config.py")
+    _git(repo, "commit", "-m", "ops")
+    alvo.write_text("AWS_KEY = os.environ['AWS_KEY']\n", encoding="utf-8")
+    _git(repo, "add", "config.py")
+    _git(repo, "commit", "--amend", "-m", "sem segredo")
+
+    achados = Scanner().scan_git_history(repo).findings
+    assert [f for f in achados if f.rule_id == "aws-access-key-id"], (
+        "o blob órfão do --amend não foi varrido"
+    )
+
+
+def test_clone_raso_falha_fechado(tmp_path: Path) -> None:
+    """Num clone raso o `--git-history` só enxerga os commits baixados. Reportar
+    sucesso nisso é prometer uma varredura que não aconteceu."""
+    origem = _repo(tmp_path, "origem")
+    for i in range(3):
+        (origem / f"f{i}.py").write_text(f"x = {i}\n", encoding="utf-8")
+        _git(origem, "add", ".")
+        _git(origem, "commit", "-m", f"c{i}")
+    raso = tmp_path / "raso"
+    subprocess.run(
+        ["git", "clone", "--depth", "1", origem.as_uri(), str(raso)],
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(GitError, match="shallow"):
+        list(iter_history_blobs(raso))
+    # ...e há uma saída explícita para quem aceita o histórico incompleto
+    assert list(iter_history_blobs(raso, permitir_shallow=True))
+
+
+def test_blob_gigante_nao_vira_memoria(tmp_path: Path) -> None:
+    """O limite de tamanho era conferido DEPOIS de o blob inteiro estar na memória:
+    um `.git` de 0,5 MB forçava 100 MB de RAM (amplificação de 217x)."""
+    repo = _repo(tmp_path)
+    (repo / "gigante.txt").write_text("A" * 12_000_000, encoding="utf-8")
+    (repo / "pequeno.py").write_text(f'AWS = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "um blob de 12 MB e um pequeno")
+
+    tracemalloc.start()
+    try:
+        resultado = Scanner(config=Config(max_file_size=1_000_000)).scan_git_history(repo)
+        pico = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert [f for f in resultado.findings if f.rule_id == "aws-access-key-id"]
+    assert resultado.skipped["tamanho"] >= 1
+    assert pico < 4_000_000, f"pico de {pico / 1e6:.1f} MB para um limite de 1 MB"

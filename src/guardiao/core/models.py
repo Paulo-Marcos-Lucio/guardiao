@@ -1,8 +1,9 @@
 """Modelos de domínio do Guardião.
 
 O objeto :class:`Finding` guarda o segredo cru em ``secret`` apenas para permitir
-gerar a *fingerprint* estável (usada no baseline). Esse campo **nunca** é
-serializado nem impresso — os renderizadores usam exclusivamente ``redacted``.
+mascarar a linha de contexto. Esse campo **nunca** é serializado nem impresso —
+os renderizadores usam exclusivamente ``redacted``, e a *fingerprint* publicada é
+derivada do valor **ocultado**, não do segredo (ver :attr:`Finding.fingerprint`).
 """
 
 from __future__ import annotations
@@ -24,14 +25,6 @@ class Severity(str, Enum):
     @property
     def rank(self) -> int:
         return _SEVERITY_RANK[self]
-
-    @classmethod
-    def from_name(cls, name: str) -> Severity:
-        try:
-            return cls(name.strip().lower())
-        except ValueError as exc:  # pragma: no cover - validação de CLI
-            valid = ", ".join(s.value for s in cls)
-            raise ValueError(f"severidade inválida: {name!r} (use uma de: {valid})") from exc
 
 
 _SEVERITY_RANK: dict[Severity, int] = {
@@ -76,15 +69,27 @@ class Finding:
 
     @property
     def fingerprint(self) -> str:
-        """Identidade estável de um achado — independente da linha exata.
+        """Identidade estável de um achado — publicável em SARIF, JSON e baseline.
 
-        Baseada em (regra, arquivo, hash do segredo), para que mover o código
-        não invalide o baseline, mas trocar o segredo sim.
+        Derivada de ``(regra, arquivo, valor ocultado)``. **Não** inclui o segredo
+        cru: um hash truncado do segredo é um compromisso quebrável — para uma senha
+        humana como ``Brasil@2024``, um dicionário a recupera em dezenas de
+        tentativas, e a fingerprint viaja no SARIF que o CI publica no Code Scanning.
+        Como só entra aqui dado que **já** aparece no relatório, força bruta não
+        acrescenta informação nenhuma ao atacante.
+
+        Também **não** inclui a linha: mover o código não pode fechar o alerta no
+        GitHub e abrir outro idêntico.
+
+        Custo aceito: dois segredos curtos com a mesma inicial, na mesma regra e no
+        mesmo arquivo, colidem — para o baseline isso é próximo do comportamento
+        desejado ("a dívida deste arquivo está aceita"), mas rotacionar um segredo
+        curto pode não gerar achado novo. Rode ``--update-baseline`` ao rotacionar.
         """
         digest = hashlib.sha256()
         digest.update(self.rule_id.encode("utf-8"))
         digest.update(b"\x00")
         digest.update(self.location.path.replace("\\", "/").encode("utf-8"))
         digest.update(b"\x00")
-        digest.update(self.secret.encode("utf-8"))
+        digest.update(self.redacted.encode("utf-8"))
         return digest.hexdigest()[:16]
