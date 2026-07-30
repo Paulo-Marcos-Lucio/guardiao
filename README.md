@@ -230,13 +230,16 @@ realmente quiser varrer o histórico parcial).
 
 ## 🔓 Versão Pro (privada) — é SERVIÇO, não outro motor
 
-Vamos ser diretos, porque aqui a honestidade é o produto: **a ferramenta deste repo já é a engine calibrada.** Não existe um "motor mais forte" escondido no privado. O repositório Pro é um *snapshot* do **mesmo código** que você acabou de ler — a mesma detecção, os mesmos 100% de recall, o mesmo 2,16 FP/1.000. O que você roda de graça é exatamente o que eu rodo num contrato.
+Sendo direto, porque aqui a honestidade é o produto: **a ferramenta deste repo já é a engine calibrada.** Não existe um "motor mais forte" escondido no privado. O repositório Pro é um *snapshot* do **mesmo código** que você acabou de ler — a mesma detecção, os mesmos 100% de recall, os mesmos 2,16 FP/1.000. O que você roda de graça é exatamente o que eu rodo num contrato. O Pro não é outra detecção; é **trabalho humano conduzido por mim** em cima da mesma engine:
 
-O que a **versão Pro** agrega é **trabalho humano conduzido por mim**, não uma linha de detecção diferente:
-
-- 🔎 **Varredura conduzida da organização inteira** — todos os repositórios e **todo o histórico Git** (não só o `HEAD`), com priorização do que é crítico. Eu rodo, **trio cada achado** como verdadeiro ou falso-positivo e entrego a lista já limpa — sem despejar ruído no seu time.
-- 🔁 **Plano de rotação de cada segredo**, passo a passo por provedor, e **reteste que comprova que a credencial saiu de circulação.** Achar é metade; **provar que rotacionou** é o serviço — o próprio README diz que a ferramenta *não* rotaciona por você.
-- 📄 **Evidência de gestão de segredos** alinhada à **LGPD (art. 46)**: relatório datado do que existia, do que foi rotacionado e da confirmação de que a chave antiga não responde mais.
+| | **Ferramenta pública (você roda)** | **Pro / serviço (eu conduzo com você)** |
+| --- | --- | --- |
+| **Motor de detecção** | A mesma engine deste repo — recall **100%**, **2,16 FP/1.000** em campo | **A mesma engine.** Nenhuma linha de detecção a mais no privado |
+| **Escopo** | O caminho ou repositório que você aponta | **A organização inteira**: todos os repositórios e **todo o histórico Git**, não só o `HEAD` |
+| **Triagem** | Você lê o relatório e adjudica cada achado | Eu **trio cada achado** como verdadeiro ou falso-positivo e entrego a lista já limpa — sem despejar ruído no time |
+| **Rotação** | A ferramenta acha; rotacionar é com você (ela *não* rotaciona) | **Plano de rotação por provedor**, passo a passo, + **reteste que comprova** que a credencial saiu de circulação |
+| **Evidência (LGPD art. 46)** | JSON/SARIF datado que você mesmo gera | Relatório datado: o que existia, o que foi rotacionado e a confirmação de que a chave antiga não responde mais |
+| **O que muda** | Código completo, aberto e auditável | **Trabalho humano conduzido** — não um motor secreto |
 
 > **Tem repositórios ou um histórico Git longo que nunca foram auditados?** Eu conduzo a varredura, a triagem e a rotação com você — com a **mesma engine que está neste repositório**.
 
@@ -250,6 +253,24 @@ O que a **versão Pro** agrega é **trabalho humano conduzido por mim**, não um
 ---
 
 ## 🏗️ Arquitetura
+
+O Guardião resolve um problema simples de enunciar e caro de ignorar: **segredos commitados por engano** — na árvore atual e, sobretudo, escondidos no histórico do Git. O dado entra por duas fontes (arquivos do disco e blobs de **todo** o histórico), atravessa o motor **linha a linha**, onde cada regra combina **regex de provedor + entropia + validador BR** e uma bateria de filtros derruba placeholder, hash e allowlist. O que sobrevive vira um `Finding` com o **segredo já ocultado**, classificado em **OWASP 2025 + CWE**. Sai em três formatos — **console**, **JSON** (`suite-appsec/1`) e **SARIF 2.1.0** para o Code Scanning —, com um **baseline** que faz o CI falhar só no que é novo.
+
+```mermaid
+flowchart LR
+    SRC["fontes/ — arquivos + histórico Git"] --> ENG["core/ — motor (Scanner, linha a linha)"]
+    ENG --> RUL["rules/ — regex + entropia + validadores BR"]
+    RUL --> FLT["filtros — placeholder · Miller-Madow · contexto de hash · allowlist"]
+    FLT --> FND["Finding — segredo ocultado"]
+    FND --> TAX["taxonomia — OWASP 2025 + CWE"]
+    TAX --> BAS["baseline — barra só o que é novo"]
+    BAS --> REP["report/ — renderização"]
+    REP --> C1["console (rich)"]
+    REP --> C2["json · suite-appsec/1"]
+    REP --> C3["sarif 2.1.0"]
+```
+
+A árvore de módulos:
 
 ```
 src/guardiao/
