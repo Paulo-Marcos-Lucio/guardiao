@@ -269,6 +269,25 @@ Princípios de projeto:
 
 ---
 
+## 🔬 Qualidade de engenharia & método
+
+**Portões (medidos neste repo, não copiados):** 141 testes (1 skip) · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (22 arquivos) · `ruff` lint + format limpo (39 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
+
+**Teste que morde a mão que o desfaz.** A calibração anti-falso-positivo vive sob guarda: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) fica **vermelho** se um filtro de precisão voltar a engolir um segredo real — reafirma que AWS, `ghp_`, entropia e chave privada continuam disparando. E `test_toda_regra_do_catalogo_tem_caso_positivo` reprova o CI se uma regra nova nascer sem caso positivo: "regra sem teste" e "regra que nunca casa nada" passam a ser indistinguíveis — e barradas. Dogfooding: `test_source_tree_is_clean` varre o próprio `src/`.
+
+**Arquitetura confirmável no código:**
+
+- **Detecção × taxonomia × renderização separadas**: `core/` (motor, entropia, ocultação), `rules/` (catálogo declarativo — cada regra é **dado**, não código), `sources/` (FS + histórico Git), `report/` (console/json/sarif).
+- **Fonte única de verdade** da edição OWASP: `OWASP_EDITION = "2025"` em `rules/definitions.py`, importado por JSON e SARIF — a edição nunca diverge entre as saídas.
+- **Contrato de saída estável**: JSON `suite-appsec/1` e **SARIF 2.1.0** (schema oficial do Code Scanning); um teste garante que o segredo cru nunca chega a renderizador algum.
+- **Imutabilidade e tipos estritos**: `Finding` e `Location` são `@dataclass(frozen=True)`; todo o `src/` passa em `mypy --strict`.
+
+**Cadeia de suprimentos do próprio repo:** actions do CI **fixadas por SHA** (`checkout`, `setup-python`, `upload-sarif`) + **Dependabot** (github-actions e pip, mensal, agrupado); `permissions: contents: read` como padrão. Fixar por SHA sem Dependabot seria congelar também a versão vulnerável — os dois andam juntos.
+
+**PT-BR é decisão de projeto**, não descuido: identificadores e enums em inglês (são chaves de máquina); texto para humano — mensagens, docstrings e nomes de teste (`test_uri_de_redis_sem_usuario_e_detectada`) — em pt-BR, consistente nas quatro ferramentas da suíte.
+
+---
+
 ## ⚖️ Uso ético
 
 Ferramenta para **avaliar repositórios que você possui ou tem autorização para analisar**. O objetivo é defensivo: encontrar e remediar exposições. Trate todo segredo encontrado como comprometido — **rotacione**, não apenas remova do histórico.
