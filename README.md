@@ -66,6 +66,15 @@ O Guardião foi feito para os dois momentos:
 
 Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (começando por *rotacionar*) e classificação **OWASP + CWE**.
 
+> **Precisão medida em campo — desta engine, a pública.** Numa bateria contra código
+> real: **recall de 100% — os 16 tipos de segredo plantados em formato de produção
+> foram todos encontrados** — a um custo de **2,16 falsos-positivos por 1.000 arquivos**
+> de código varrido. A calibração que produz esses números **está neste repositório**;
+> não há motor secreto. Exemplo concreto do que a calibração corrigiu: a chave
+> `sk_live_…` que por acaso contém a sequência `abcdefgh` **não é mais engolida** pelo
+> filtro de placeholder — antes uma credencial CRÍTICA sumia em silêncio por coincidir
+> com 8 letras de um exemplo de documentação.
+
 ### Como evita falso-positivo
 
 - **Entropia com correção de viés.** O estimador de Shannon é enviesado para baixo em cadeias curtas (ele não pode passar de `log2(n)`), então comparar a um limiar fixo em bits/char cria falso-negativo dependente do comprimento. O critério usa **Miller-Madow** contra uma fração do máximo teórico do alfabeto do token. Medido em 5.992 segredos aleatórios × 12.206 cadeias reais extraídas de código: recall **85,3% → 94,9%** e falso-positivo **282 → 239** — ganha nos dois eixos.
@@ -219,15 +228,17 @@ realmente quiser varrer o histórico parcial).
 
 ---
 
-## 🔓 Versão Pro (privada) — engine calibrada + rotação
+## 🔓 Versão Pro (privada) — é SERVIÇO, não outro motor
 
-Este repo é a **vitrine** do scanner. A **versão Pro é privada**: a **engine completa calibrada em campo** — a que derruba o falso-positivo a quase zero em bases reais — a varredura de **todo o histórico** de repositórios críticos e o **acompanhamento da rotação** de cada segredo encontrado. Porque achar é metade; **rotacionar e comprovar** é o serviço.
+Vamos ser diretos, porque aqui a honestidade é o produto: **a ferramenta deste repo já é a engine calibrada.** Não existe um "motor mais forte" escondido no privado. O repositório Pro é um *snapshot* do **mesmo código** que você acabou de ler — a mesma detecção, os mesmos 100% de recall, o mesmo 2,16 FP/1.000. O que você roda de graça é exatamente o que eu rodo num contrato.
 
-- 🔬 Detecção calibrada em execução real (menos ruído, mais sinal);
-- 🔁 Plano de **rotação** e reteste que comprova que o segredo saiu de circulação;
-- 📄 Evidência de gestão de segredos alinhada à **LGPD (art. 46)**.
+O que a **versão Pro** agrega é **trabalho humano conduzido por mim**, não uma linha de detecção diferente:
 
-> **Tem repositórios (ou um histórico Git longo) que nunca foram auditados?** Eu varro, priorizo e conduzo a rotação com você.
+- 🔎 **Varredura conduzida da organização inteira** — todos os repositórios e **todo o histórico Git** (não só o `HEAD`), com priorização do que é crítico. Eu rodo, **trio cada achado** como verdadeiro ou falso-positivo e entrego a lista já limpa — sem despejar ruído no seu time.
+- 🔁 **Plano de rotação de cada segredo**, passo a passo por provedor, e **reteste que comprova que a credencial saiu de circulação.** Achar é metade; **provar que rotacionou** é o serviço — o próprio README diz que a ferramenta *não* rotaciona por você.
+- 📄 **Evidência de gestão de segredos** alinhada à **LGPD (art. 46)**: relatório datado do que existia, do que foi rotacionado e da confirmação de que a chave antiga não responde mais.
+
+> **Tem repositórios ou um histórico Git longo que nunca foram auditados?** Eu conduzo a varredura, a triagem e a rotação com você — com a **mesma engine que está neste repositório**.
 
 <div align="center">
 
