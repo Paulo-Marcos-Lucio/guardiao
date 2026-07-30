@@ -29,6 +29,8 @@ def finding_to_dict(finding: Finding) -> dict[str, object]:
         "line": finding.location.line,
         "column": finding.location.column,
         "commit": finding.location.commit,
+        "occurrences": finding.occurrences,
+        "commit_last": finding.commit_last,
         "redacted": finding.redacted,
         "entropy": finding.entropy,
         "category": finding.category,

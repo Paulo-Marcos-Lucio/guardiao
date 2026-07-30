@@ -27,3 +27,4 @@ coverage.xml
 .idea/
 .vscode/
 .DS_Store
+gbd.json

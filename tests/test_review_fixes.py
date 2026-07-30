@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 from guardiao.cli import app
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
+from guardiao.core.models import Severity
 from guardiao.core.redaction import redact, redact_spans
 from tests.conftest import (
     AWS_KEY_ID,
@@ -292,6 +293,91 @@ def test_fingerprint_publicada_nao_permite_recuperar_o_segredo() -> None:
     assert len(casaram) > 1, "a fingerprint publicada identifica um único segredo"
     # e o segredo cru não é ingrediente: trocar só o valor cru não muda a identidade
     assert replace(achado, secret="outra-coisa").fingerprint == alvo
+
+
+# =========================================================================== #
+# Calibração de campo (2026-07-30): D→ recall/precisão na Bússola.
+# Corpus-régua bench-guardiao: 9/14→13/14 recall, 0 FP mantido.
+# =========================================================================== #
+
+# CRIT — F-007: segredo de alta entropia embutido num SEGMENTO de path/URL.
+# A regra de entropia diluía o token no `/` e o keyword-gate cegava a linha isolada.
+_F007 = "/_internal/U0L-E_qt9hjzO6G66Um7COr4bIDt-6cL/intel/tabela"
+
+
+def test_secret_in_path_recupera_o_f007() -> None:
+    assert "secret-in-path" in _ids(f"redact_path_secret('{_F007}')")
+    # e o blob MAIÚSCULO puro do gabarito (que o limiar de entropia por-alfabeto
+    # subestima) também: aleatoriedade = impronunciabilidade, não só entropia.
+    caps = "/_internal/GFCHMJDGBKCPEGJMFCHFKPMLFNAGOFDA/intel/tabela"
+    assert "secret-in-path" in _ids(f'x = "{caps}"')
+
+
+def test_secret_in_path_nao_flagra_slug_uuid_nem_sha() -> None:
+    """Segmento longo mas LEGÍVEL/estruturado não é segredo (precisão)."""
+    for path in (
+        "/blog/2024/my-very-long-article-title-here/index",  # slug legível
+        "/objects/550e8400-e29b-41d4-a716-446655440000/meta",  # UUID
+        "/tree/de0fac2e4500dabe0009e67214ff5f5447ce83dd/src",  # SHA-1 de git
+    ):
+        assert "secret-in-path" not in _ids(f'url = "{path}"'), path
+
+
+def test_secret_in_path_e_imune_ao_rebaixe_de_teste() -> None:
+    """O F-007 mora num `test_*.py`: a consciência de teste NÃO pode enterrá-lo —
+    regra de FORMATO é imune ao rebaixe (só heurística genérica rebaixa)."""
+    achados = list(Scanner().scan_text("tests/test_log_redaction.py", f"redact('{_F007}')"))
+    sip = [f for f in achados if f.rule_id == "secret-in-path"]
+    assert sip and sip[0].severity is Severity.MEDIUM
+
+
+# ALTO — db-connection-uri aceita o sufixo +driver do SQLAlchemy (postgresql+psycopg://).
+def test_db_uri_com_driver_sqlalchemy_e_detectada() -> None:
+    line = 'URL = "postgresql+psycopg://postgres:Zx9r2Pq8LmNv3Kd@prod-db.acme.com:5432/main"'
+    assert "db-connection-uri" in _ids(line)
+    assert "db-connection-uri" in _ids('u = "mysql+pymysql://root:Xq7pL2mNv9Kd@10.0.0.9/app"', "x")
+
+
+# ALTO — generic-assignment exige que o VALOR pareça segredo (piso multi-sinal).
+def test_generic_assignment_exige_valor_com_cara_de_segredo() -> None:
+    # rejeita: valor com espaço, identificador legível, nome de bind-var do psql
+    assert "generic-assignment" not in _ids('password = "wrong password"', "app.py")
+    assert "generic-assignment" not in _ids('client_secret = "monitoring_password"', "app.py")
+    assert "generic-assignment" not in _ids(
+        "CREATE USER app PASSWORD :'monitoring_password';", "setup.sql"
+    )
+    # mantém: senha humana mista, hex, token — NÃO cria falso-negativo
+    assert "generic-assignment" in _ids('api_key = "S3cr3tP4ssw0rdX9zQvB"', "app.py")
+    assert "generic-assignment" in _ids('password = "Cliente1234567890"', "app.py")
+
+
+# ALTO — consciência de teste é SINAL SUAVE (rebaixa), nunca skip.
+def test_arquivo_de_teste_rebaixa_heuristica_mas_nao_suprime() -> None:
+    line = 'api_key = "S3cr3tP4ssw0rdX9zQvB"'
+    prod = next(f for f in Scanner().scan_text("app/config.py", line))
+    teste = next(f for f in Scanner().scan_text("tests/test_config.py", line))
+    assert prod.severity is Severity.MEDIUM
+    assert teste.severity is Severity.LOW  # rebaixado, mas AINDA reportado
+    # --incluir-testes desliga o rebaixe
+    sem_rebaixe = next(
+        f for f in Scanner(config=Config(demote_tests=False)).scan_text("tests/test_config.py", line)
+    )
+    assert sem_rebaixe.severity is Severity.MEDIUM
+
+
+# MED — 'api' isolado casava DENTRO de 'FastAPI' e ligava a regra de entropia.
+def test_api_dentro_de_fastapi_nao_liga_entropia() -> None:
+    linha = "# stack: SQLAlchemy/Redis/FastAPI roda tudo integrado sem problema nenhum"
+    assert "high-entropy-string" not in _ids(linha)
+
+
+# Uma senha de ALTA ENTROPIA contra localhost/IP privado ainda é credencial real.
+def test_uri_localhost_com_senha_forte_ainda_e_flagrada() -> None:
+    forte = 'URL = "postgresql://appuser:7bdc25d1694ef984782a16f6@10.0.0.5:5432/prod"'
+    assert "db-connection-uri" in _ids(forte)
+    # ...mas senha placeholder contra host local continua suprimida (dev config)
+    fraca = 'URL = "postgresql://appuser:postgres@10.0.0.5:5432/prod"'
+    assert "db-connection-uri" not in _ids(fraca)
 
 
 def test_fingerprint_muda_com_arquivo_e_com_o_valor_ocultado() -> None:

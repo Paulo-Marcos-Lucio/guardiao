@@ -13,13 +13,34 @@ fluxo**: o pico de memória é O(limite), não O(maior objeto do repositório).
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
+from guardiao.sources.files import decode_text_bytes
+
 _BLOCO = 65536
+
+#: Timeout (s) para os comandos de git de vida-curta (rev-parse/rev-list). Um repo
+#: lento/malicioso não pode travar a varredura para sempre — falha alto por timeout.
+_GIT_TIMEOUT_S = 120
+
+
+def _git_env() -> dict[str, str]:
+    """Ambiente que impede o git de BLOQUEAR à espera de entrada humana.
+
+    ``GIT_TERMINAL_PROMPT=0`` e o askpass silencioso garantem que qualquer prompt de
+    credencial (ex.: um repo com remote/submódulo que tente autenticar) vire erro
+    imediato em vez de um travamento indefinido esperando no terminal.
+    """
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = env.get("GIT_ASKPASS", "echo")
+    env["GCM_INTERACTIVE"] = "never"
+    return env
 
 
 class GitError(RuntimeError):
@@ -69,8 +90,10 @@ def iter_history_blobs(
         proc = subprocess.Popen(
             ["git", "cat-file", "--batch", "--batch-all-objects", "--buffer"],
             cwd=str(repo),
+            stdin=subprocess.DEVNULL,  # nunca enviamos requisições: EOF imediato, sem travar
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            env=_git_env(),
         )
     except (OSError, ValueError) as exc:  # pragma: no cover - git ausente
         raise GitError(str(exc)) from exc
@@ -79,10 +102,12 @@ def iter_history_blobs(
     if stdout is None:  # pragma: no cover - defensivo
         raise GitError("git cat-file não abriu stdout")
 
+    completou = False
     try:
         while True:
             header = stdout.readline()
             if not header:
+                completou = True  # EOF natural do stream: o cat-file terminou de emitir
                 break
             parts = header.decode("utf-8", "replace").split()
             if len(parts) < 3:
@@ -104,7 +129,11 @@ def iter_history_blobs(
 
             content = _read_exact(stdout, size)
             stdout.read(1)  # newline após o conteúdo
-            if b"\x00" in content[:8192]:
+            # Mesma decodificação da árvore de trabalho: um blob UTF-16/UTF-32 (config
+            # .NET, script do PowerShell) NÃO pode ser descartado como binário só pelos
+            # NUL de intercalação — senão o segredo no histórico passa batido.
+            text = decode_text_bytes(content)
+            if text is None:
                 contador["binario"] = contador.get("binario", 0) + 1
                 continue
             # Blob sem caminho conhecido = objeto **solto** (o que sobra de um
@@ -113,11 +142,22 @@ def iter_history_blobs(
             yield Blob(
                 sha=sha[:12],
                 path=paths.get(sha) or f"<objeto solto {sha[:12]}>",
-                text=content.decode("utf-8", errors="replace"),
+                text=text,
             )
     finally:
         stdout.close()
-        proc.wait()
+        returncode = proc.wait()
+
+    # FALHA ALTO em vez de vazio silencioso: se o `git cat-file` terminou com erro
+    # (objeto corrompido que ele não conseguiu pular, I/O do repositório), o histórico
+    # varrido está INCOMPLETO. Sem esta guarda, um erro do git a meio do streaming
+    # viraria "0 achado, exit 0" e o gate de CI passaria falso. Só dispara após o
+    # streaming terminar por completo (EOF) — nunca quando o consumidor abandona cedo.
+    if completou and returncode not in (0, None):
+        raise GitError(
+            f"git cat-file terminou com código {returncode}: o histórico pode ter sido "
+            "varrido de forma incompleta (objeto corrompido ou erro de I/O no repositório)."
+        )
 
 
 def _descartar(stream: IO[bytes], n: int) -> None:
@@ -167,7 +207,13 @@ def _run(repo: Path, *args: str) -> _Result:
             encoding="utf-8",
             errors="replace",
             check=False,
+            stdin=subprocess.DEVNULL,
+            env=_git_env(),
+            timeout=_GIT_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired:
+        # Falha ALTO: um repo que trava o git por >2min não pode virar "0 achado".
+        return _Result(False, "", f"git {args[0]} excedeu o tempo limite de {_GIT_TIMEOUT_S}s")
     except (OSError, ValueError) as exc:  # pragma: no cover - git ausente
         return _Result(False, "", str(exc))
     return _Result(proc.returncode == 0, proc.stdout, proc.stderr)

@@ -66,6 +66,14 @@ class Finding:
     owasp: str | None = None
     category: str = "secret"
     recommendation: str = ""
+    #: Quantos blobs distintos do histórico Git carregavam ESTE mesmo achado
+    #: (mesma regra, arquivo e valor ocultado). 1 num scan de árvore; >1 quando o
+    #: `--git-history` encontra o segredo repetido em vários commits — reportado como
+    #: UM achado para não multiplicar o mesmo vazamento por dezenas de linhas.
+    occurrences: int = 1
+    #: Último commit (na ordem de varredura) em que o achado reincidiu; `None` fora
+    #: do histórico ou quando aparece uma vez só. O primeiro fica em ``location.commit``.
+    commit_last: str | None = None
 
     @property
     def fingerprint(self) -> str:

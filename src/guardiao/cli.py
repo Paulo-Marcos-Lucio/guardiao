@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import subprocess
 import sys
 from enum import Enum
@@ -23,6 +24,7 @@ from guardiao.report.console import txt
 from guardiao.report.json_report import to_json
 from guardiao.report.sarif import to_sarif
 from guardiao.rules.registry import all_rules
+from guardiao.sources.files import decode_text_bytes
 from guardiao.sources.githistory import GitError
 
 app = typer.Typer(
@@ -98,6 +100,7 @@ def _build_config(
     scan_lockfiles: bool = False,
     max_file_size: int = Config.max_file_size,
     max_line_length: int = Config.max_line_length,
+    incluir_testes: bool = False,
 ) -> Config:
     _validar_selecao(only, skip, skip_category)
     return Config(
@@ -108,6 +111,7 @@ def _build_config(
         scan_noise_files=scan_lockfiles,
         max_file_size=max_file_size,
         max_line_length=max_line_length,
+        demote_tests=not incluir_testes,
     )
 
 
@@ -169,6 +173,12 @@ def scan(
         FailOn.medium, "--fail-on", help="Severidade mínima que faz o comando sair com código 1."
     ),
     no_entropy: bool = typer.Option(False, "--no-entropy", help="Desliga a regra por entropia."),
+    incluir_testes: bool = typer.Option(
+        False,
+        "--incluir-testes",
+        help="Não rebaixa a severidade de achados heurísticos em arquivos de teste "
+        "(por padrão, tests/, test_*.py, conftest.py etc. são rebaixados — sinal suave).",
+    ),
     scan_lockfiles: bool = typer.Option(
         False,
         "--scan-lockfiles",
@@ -190,7 +200,14 @@ def scan(
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
     config = _build_config(
-        only, skip, skip_category, no_entropy, scan_lockfiles, max_file_size, max_line_length
+        only,
+        skip,
+        skip_category,
+        no_entropy,
+        scan_lockfiles,
+        max_file_size,
+        max_line_length,
+        incluir_testes,
     )
     scanner = Scanner(config=config)
 
@@ -306,13 +323,14 @@ def _staged_units(config: Config, skipped: dict[str, int]) -> list[tuple[str, st
         raw = _git_bytes("show", f":{path}")
         if raw is None:
             continue
-        if b"\x00" in raw[:8192]:
-            skipped["binario"] = skipped.get("binario", 0) + 1
-            continue
         if len(raw) > config.max_file_size:
             skipped["tamanho"] = skipped.get("tamanho", 0) + 1
             continue
-        units.append((path, raw.decode("utf-8", errors="replace"), None))
+        text = decode_text_bytes(raw)  # BOM-aware: UTF-16/UTF-32 não é binário
+        if text is None:
+            skipped["binario"] = skipped.get("binario", 0) + 1
+            continue
+        units.append((path, text, None))
     return units
 
 
@@ -324,6 +342,16 @@ def _staged_paths() -> list[str]:
     return [p for p in out.split("\x00") if p]
 
 
+def _git_env() -> dict[str, str]:
+    """Ambiente que impede o git de travar esperando entrada humana (prompt de
+    credencial num hook de pre-commit vira erro imediato, não um travamento)."""
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = env.get("GIT_ASKPASS", "echo")
+    env["GCM_INTERACTIVE"] = "never"
+    return env
+
+
 def _git(*args: str) -> str | None:
     try:
         proc = subprocess.run(
@@ -333,16 +361,26 @@ def _git(*args: str) -> str | None:
             encoding="utf-8",
             errors="replace",
             check=False,
+            stdin=subprocess.DEVNULL,
+            env=_git_env(),
+            timeout=120,
         )
-    except (OSError, ValueError):  # pragma: no cover - git ausente
+    except (OSError, ValueError, subprocess.TimeoutExpired):  # pragma: no cover - git ausente/lento
         return None
     return proc.stdout if proc.returncode == 0 else None
 
 
 def _git_bytes(*args: str) -> bytes | None:
     try:
-        proc = subprocess.run(["git", *args], capture_output=True, check=False)
-    except (OSError, ValueError):  # pragma: no cover - git ausente
+        proc = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            env=_git_env(),
+            timeout=120,
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):  # pragma: no cover - git ausente/lento
         return None
     return proc.stdout if proc.returncode == 0 else None
 
