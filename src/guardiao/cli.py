@@ -31,6 +31,12 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
     help="Guardião — encontra segredos vazados no código e no histórico Git.",
+    # O traceback é uma saída como qualquer outra, e o invariante é "o segredo cru
+    # nunca sai". Em typer 0.12.5 este parâmetro vem LIGADO por padrão: numa exceção
+    # não tratada o Rich imprime os locais do frame, e `Finding.secret` — que só existe
+    # para poder mascarar a linha — vai cru para o stderr do CI. Explícito aqui, e não
+    # herdado do padrão da versão instalada, porque o padrão é decisão de terceiro.
+    pretty_exceptions_show_locals=False,
 )
 err_console = Console(stderr=True)
 

@@ -20,7 +20,10 @@ classifiers = [
   "Topic :: Security",
 ]
 dependencies = [
-  "typer>=0.12",
+  # Piso em 0.16, não 0.12: até a 0.12.5, `pretty_exceptions_show_locals` vinha ligado
+  # por padrão e o VALOR de um segredo aparecia cru no traceback (locais do frame).
+  # O `cli.py` também passa o parâmetro explicitamente — cinto e suspensório.
+  "typer>=0.16",
   "rich>=13.7",
 ]
 
