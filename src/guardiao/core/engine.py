@@ -130,6 +130,10 @@ class ScanResult:
     #: Valores casados por uma regra e descartados como placeholder (auditabilidade
     #: da supressão: sem esse número, o descarte é silencioso).
     placeholders: int = 0
+    #: Limites de ALCANCE que a fonte reconhece e declara (ex.: um clone não recebe os
+    #: objetos inalcançáveis do repositório de origem). Não é erro e não muda o código
+    #: de saída: travar o CI do cliente por um limite conhecido seria pior que declará-lo.
+    avisos_de_cobertura: list[str] = field(default_factory=list)
 
     def counts(self) -> dict[Severity, int]:
         result: dict[Severity, int] = dict.fromkeys(Severity, 0)
@@ -325,6 +329,9 @@ class Scanner:
 
     def scan_git_history(self, repo: Path | str, *, permitir_shallow: bool = False) -> ScanResult:
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
+        # `avisos` é preenchido por REFERÊNCIA, como `skipped`: a fonte é preguiçosa e
+        # só declara o que descobriu enquanto o pipeline a consome.
+        avisos: list[str] = []
         units = (
             (blob.path, blob.text, blob.sha)
             for blob in iter_history_blobs(
@@ -332,9 +339,11 @@ class Scanner:
                 max_bytes=self.config.max_file_size,
                 skipped=skipped,
                 permitir_shallow=permitir_shallow,
+                avisos=avisos,
             )
         )
         result = self.scan_units(units, skipped)
+        result.avisos_de_cobertura = avisos
         # O MESMO segredo persiste em dezenas de blobs (todo commit que tocou o arquivo
         # o recarrega): 283 linhas brutas eram ~64 vazamentos distintos. Colapsa por
         # fingerprint (regra+arquivo+valor ocultado) em UM achado, contando as recidivas.

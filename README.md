@@ -234,6 +234,16 @@ num clone raso `--git-history` só vê os commits baixados. O Guardião **aborta
 exit 2** nesse caso em vez de reportar sucesso (use `--permitir-shallow` se você
 realmente quiser varrer o histórico parcial).
 
+E mesmo com `fetch-depth: 0` **há um limite que nenhuma flag remove**: `git clone` e
+`git fetch` transferem apenas objetos **alcançáveis**. O blob que sobrou de um
+`commit --amend`, de um rebase, de um branch deletado ou de um stash existe só no
+repositório de origem e **não chega ao runner** — é o esconderijo mais comum de
+segredo. Rodando num clone, o Guardião **declara esse limite** no relatório
+(`summary.coverage_warnings` no JSON, `properties.coverageWarnings` no SARIF) em vez
+de entregar "0 achado" como se tivesse olhado tudo. Ele **não falha** por isso: um
+limite conhecido do protocolo do Git não é motivo para travar o seu CI. Para alcance
+total, rode a varredura no próprio repositório de origem.
+
 ---
 
 ## 🔓 Versão Pro (privada) — é SERVIÇO, não outro motor

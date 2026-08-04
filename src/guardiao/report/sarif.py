@@ -115,6 +115,10 @@ def to_sarif(result: ScanResult) -> str:
                     "owasp_edition": OWASP_EDITION,
                     "skipped": dict(result.skipped),
                     "unitsScanned": result.units_scanned,
+                    # O que a varredura sabidamente NÃO alcançou (ex.: objetos
+                    # inalcançáveis que um clone não recebe). Sem isso, o Code Scanning
+                    # verde de um clone é lido como "o histórico está limpo".
+                    "coverageWarnings": list(result.avisos_de_cobertura),
                 },
             }
         ],

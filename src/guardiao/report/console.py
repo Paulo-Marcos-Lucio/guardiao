@@ -54,6 +54,7 @@ def render(result: ScanResult, console: Console | None = None) -> None:
                 f"[dim]({result.units_scanned} unidades, {result.duration_s}s)[/]"
             )
         _render_pulos(result, console)
+        _render_cobertura(result, console)
         return
 
     table = Table(show_lines=False, expand=True, header_style="bold")
@@ -75,6 +76,18 @@ def render(result: ScanResult, console: Console | None = None) -> None:
     _render_summary(result, console)
     _render_plano(result, console)
     _render_pulos(result, console)
+    _render_cobertura(result, console)
+
+
+def _render_cobertura(result: ScanResult, console: Console) -> None:
+    """Limites de ALCANCE declarados pela fonte — o que a varredura não pôde ver.
+
+    Vem do alvo (nome de repositório, mensagem montada), então sai como `Text`: nada
+    de markup do Rich interpretado. Aparece TAMBÉM quando não há achado — é aí que a
+    ausência de achado corre o risco de ser lida como ausência de segredo.
+    """
+    for aviso in result.avisos_de_cobertura:
+        console.print(Text("⚠ ", style="yellow") + txt(aviso))
 
 
 def _render_summary(result: ScanResult, console: Console) -> None:

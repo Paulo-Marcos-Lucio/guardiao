@@ -57,6 +57,10 @@ def to_document(result: ScanResult) -> dict[str, object]:
             # indistinguíveis para quem consome o relatório.
             "skipped": dict(result.skipped),
             "placeholders_discarded": result.placeholders,
+            # Limites de ALCANCE (o que a varredura não pôde ver, ex.: objetos
+            # inalcançáveis que um clone não recebe). Lista vazia = nenhum limite
+            # conhecido; a chave existe sempre, para o consumidor não ter de adivinhar.
+            "coverage_warnings": list(result.avisos_de_cobertura),
         },
         "findings": [finding_to_dict(f) for f in result.findings],
     }

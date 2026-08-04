@@ -100,6 +100,22 @@ def test_console_e_json_declaram_diretorio_pulado(tmp_path: Path) -> None:
     assert zerado["diretorio"] == 0
 
 
+def test_aviso_de_cobertura_aparece_em_console_json_e_sarif() -> None:
+    """Um limite de alcance declarado pela fonte (ex.: clone que não trouxe os objetos
+    inalcançáveis) só serve se chegar a quem lê o laudo — nos três formatos."""
+    resultado = Scanner().scan_units([("a.py", "x = 1", None)])
+    resultado.avisos_de_cobertura.append("Repositório é um clone: alcance limitado.")
+
+    saida = _render(resultado)
+    assert "alcance limitado" in saida
+
+    documento = to_document(resultado)
+    assert documento["summary"]["coverage_warnings"] == resultado.avisos_de_cobertura  # type: ignore[index]
+
+    sarif = json.loads(to_sarif(resultado))
+    assert sarif["runs"][0]["properties"]["coverageWarnings"] == resultado.avisos_de_cobertura
+
+
 def test_console_nao_interpreta_markup_do_alvo(tmp_path: Path) -> None:
     """Markup do Rich vindo do alvo derrubava o relatório inteiro (MarkupError) e
     permitiria esconder um achado com `[black on black]`."""

@@ -199,6 +199,58 @@ def test_clone_raso_falha_fechado(tmp_path: Path) -> None:
     assert list(iter_history_blobs(raso, permitir_shallow=True))
 
 
+def test_clone_declara_limite_de_alcance(tmp_path: Path) -> None:
+    """Clone RASO já falha fechado. O buraco era o clone COMPLETO: `git clone` sobre o
+    protocolo transfere só objetos ALCANÇÁVEIS, então o blob órfão do `--amend` (o
+    esconderijo mais comum) nunca chega — e a receita do README para CI
+    (actions/checkout + fetch-depth: 0) cai exatamente nesse caso, com exit 0 e sem
+    uma palavra. Inconclusivo não é ausência: aqui o laudo declara o que não alcançou.
+    """
+    origem = _repo(tmp_path, "origem")
+    alvo = origem / "config.py"
+    alvo.write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(origem, "add", ".")
+    _git(origem, "commit", "-m", "ops")
+    alvo.write_text("AWS_KEY = os.environ['AWS_KEY']\n", encoding="utf-8")
+    _git(origem, "add", ".")
+    _git(origem, "commit", "--amend", "-m", "sem segredo")
+
+    clone = tmp_path / "clone"
+    subprocess.run(  # `.as_uri()` força o protocolo: é o que o CI faz de verdade
+        ["git", "clone", origem.as_uri(), str(clone)], check=True, capture_output=True
+    )
+
+    no_original = Scanner().scan_git_history(origem)
+    no_clone = Scanner().scan_git_history(clone)
+
+    # a perda é real e medida: o objeto solto não veio junto...
+    assert [f for f in no_original.findings if f.rule_id == "aws-access-key-id"]
+    assert not [f for f in no_clone.findings if f.rule_id == "aws-access-key-id"]
+    # ...então o relatório do clone tem de DECLARAR o limite (sem travar o CI)
+    assert no_clone.avisos_de_cobertura, "clone varrido em silêncio, como se fosse tudo"
+    assert any("clone" in aviso.lower() for aviso in no_clone.avisos_de_cobertura)
+    assert no_original.avisos_de_cobertura == [], "repo sem origem remota não tem esse limite"
+
+
+def test_aviso_de_cobertura_nao_expoe_a_url_do_remoto(tmp_path: Path) -> None:
+    """`remote.origin.url` costuma trazer credencial embutida
+    (`https://usuario:token@host/...`). O aviso não pode publicar a origem no laudo —
+    seria a ferramenta de vazamento vazando."""
+    repo = _repo(tmp_path)
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "c0")
+    _git(repo, "remote", "add", "origin", f"https://maria:{GH_TOKEN}@git.example.com/x.git")
+
+    resultado = Scanner().scan_git_history(repo)
+
+    assert resultado.avisos_de_cobertura
+    assert all(
+        GH_TOKEN not in aviso and "git.example.com" not in aviso
+        for aviso in resultado.avisos_de_cobertura
+    )
+
+
 def test_blob_gigante_nao_vira_memoria(tmp_path: Path) -> None:
     """O limite de tamanho era conferido DEPOIS de o blob inteiro estar na memória:
     um `.git` de 0,5 MB forçava 100 MB de RAM (amplificação de 217x)."""
