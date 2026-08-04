@@ -11,7 +11,7 @@ from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
 from guardiao.sources import githistory
 from guardiao.sources.githistory import GitError, iter_history_blobs
-from tests.conftest import AWS_KEY_ID, GH_TOKEN
+from tests.conftest import AWS_KEY_ID, GH_TOKEN, SENHA_DE_PRODUCAO
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git não disponível")
 
@@ -82,6 +82,38 @@ def test_blob_solto_de_commit_amend_e_varrido(tmp_path: Path) -> None:
     assert [f for f in achados if f.rule_id == "aws-access-key-id"], (
         "o blob órfão do --amend não foi varrido"
     )
+
+
+def test_env_amendado_ainda_dispara_dotenv_assignment(tmp_path: Path) -> None:
+    """Cenário-ASSINATURA do módulo: `.env` commitado por engano e "removido" com
+    `--amend`. O blob órfão era lido, mas recebia o caminho sintético
+    `<objeto solto SHA>`; `_rules_for` compara por nome de arquivo, `dotenv-assignment`
+    era descartada, e o relatório voltava "nenhum segredo encontrado" — a regra que
+    existe exatamente para esse formato nunca chegava a rodar."""
+    repo = _repo(tmp_path)
+    env = repo / ".env"
+    env.write_text(f"APP_ENV=producao\nDB_PASSWORD={SENHA_DE_PRODUCAO}\n", encoding="utf-8")
+    _git(repo, "add", ".env")
+    _git(repo, "commit", "-m", "sobe .env por engano")
+    env.write_text("APP_ENV=producao\nDB_PASSWORD=\n", encoding="utf-8")
+    _git(repo, "add", ".env")
+    _git(repo, "commit", "--amend", "-m", "sem segredo")
+
+    achados = Scanner().scan_git_history(repo).findings
+
+    dotenv = [f for f in achados if f.rule_id == "dotenv-assignment"]
+    assert dotenv, "a regra .env sumiu no blob órfão (caminho sintético)"
+    assert dotenv[0].secret == SENHA_DE_PRODUCAO
+
+
+def test_blob_solto_de_codigo_nao_vira_dotenv(tmp_path: Path) -> None:
+    """A heurística de conteúdo não pode transformar todo blob órfão em `.env`: código
+    Python solto (`x = valor`, com espaços) continua fora do alcance da regra."""
+    from guardiao.core.engine import _parece_dotenv
+
+    assert not _parece_dotenv("senha = obter_senha()\nx = 1\n")
+    assert not _parece_dotenv("")
+    assert _parece_dotenv(f"APP_ENV=producao\nDB_PASSWORD={SENHA_DE_PRODUCAO}\n")
 
 
 def test_historico_deduplica_o_mesmo_segredo_por_fingerprint(tmp_path: Path) -> None:
