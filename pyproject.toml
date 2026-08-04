@@ -46,6 +46,9 @@ packages = ["src/guardiao"]
 line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
+# Fixtures do corpus de referência são deliberadamente "sujos": segredos sintéticos,
+# literais soltos e formatação atípica são o objeto de teste, não descuido.
+extend-exclude = ["bench/positivos", "bench/negativos"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]

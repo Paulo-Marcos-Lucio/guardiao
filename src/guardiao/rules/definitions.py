@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from guardiao.core.entropy import MIN_SECRET_LEN
+from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy
 from guardiao.core.models import Severity
 from guardiao.rules.base import Rule, compile_rule
 from guardiao.rules.br import cnpj_valido, cpf_valido
@@ -38,7 +38,9 @@ SECRET_CONTEXT: tuple[str, ...] = (
     "passphrase",
     "pwd",
     "pass",
-    "api",
+    # `api` isolado casava DENTRO de `FastAPI` (fronteira camelCase) e ligava a
+    # regra de entropia num comentário `SQLAlchemy/Redis/FastAPI` — FP de campo.
+    # `apikey`/`api_key`/`api_token` continuam cobertos por `key`/`token`/`apikey`.
     "apikey",
     "access",
     "auth",
@@ -102,6 +104,13 @@ _ANCORA_CHAVE = (
 _ENTROPIA_PATTERN = (
     r"(?<![A-Za-z0-9+/_-])([A-Za-z0-9+/_-]{" + str(MIN_SECRET_LEN) + r",}={0,2})(?![A-Za-z0-9+/_-])"
 )
+
+# Segmento de path/URL longo o bastante para ser um token: `/…<seg>…/`. Ao contrário
+# do `_ENTROPIA_PATTERN`, o `/` NÃO entra na classe — é o delimitador do segmento, para
+# não diluir o token. O segmento é aceito/rejeitado depois pelo filtro multi-sinal da
+# categoria `entropy` (`looks_like_secret_token`), que separa token aleatório de slug
+# legível. A fronteira final aceita `/`, aspas, espaço, query/fragmento ou fim de linha.
+_SECRET_IN_PATH_PATTERN = r"/([A-Za-z0-9+_=-]{" + str(MIN_SECRET_LEN) + r",})(?=[/\"'\s?#]|$)"
 
 # `.env` e amigos: ali `CHAVE=valor` sem aspas é o formato normal, e restringir a regra
 # a esses arquivos mantém o falso-positivo em zero por construção (em código-fonte,
@@ -355,7 +364,11 @@ def default_rules() -> list[Rule]:
             # O usuário pode ser VAZIO: a forma canônica do Redis (e do AMQP com vhost
             # padrão) omite o usuário — `redis://` seguido de `:senha@host` — e é assim
             # que o redis-cli, o Sidekiq e o REDIS_URL do Heroku a escrevem.
-            r"\b((?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps)://"
+            # `(?:\+[a-z0-9]+)?` aceita o sufixo +driver do SQLAlchemy/DBAPI
+            # (`postgresql+psycopg://`, `mysql+pymysql://`) — a forma que TODO backend
+            # FastAPI/SQLAlchemy usa; sem isso a senha embutida passava batida.
+            r"\b((?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps)"
+            r"(?:\+[a-z0-9]+)?://"
             r"[^:@\s/]*:[^@\s/]+@[^\s'\"]+)",
             secret_group=1,
             cwe="CWE-798",
@@ -378,9 +391,31 @@ def default_rules() -> list[Rule]:
             Severity.MEDIUM,
             _ANCORA_CHAVE + r"""["' ]?\s*[:=]\s*["']([^"'\n]{8,})["']""",
             secret_group=1,
+            validator=looks_like_secret_value,
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Valor de aparência secreta atribuído a uma chave sensível. " + _ROTATE,
+        ),
+        # Segredo de alta entropia embutido num SEGMENTO de path/URL (`/_internal/<32c>/…`).
+        # A regra genérica de entropia diluía o token no `/` e o keyword-gate cegava a
+        # linha sem palavra de contexto — este era o buraco do F-007. Aqui o path É o
+        # contexto: cada segmento entre barras é pontuado por conta própria (categoria
+        # `entropy` herda os filtros de aleatoriedade, hash/UUID e pin `@sha`).
+        compile_rule(
+            "secret-in-path",
+            "Segredo de alta entropia embutido em path/URL",
+            # MEDIUM (não HIGH) de propósito: é uma heurística de entropia, igual à
+            # `high-entropy-string`. Assim uma regra de FORNECEDOR específica que cubra
+            # a mesma URL (ex.: `slack-webhook`) vence o desempate do dedup e mantém o
+            # rótulo mais informativo.
+            Severity.MEDIUM,
+            _SECRET_IN_PATH_PATTERN,
+            secret_group=1,
+            category="entropy",
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Token aleatório embutido num caminho/URL (vaza em logs, "
+            "referrer e histórico do navegador). " + _ROTATE,
         ),
         compile_rule(
             "dotenv-assignment",
@@ -537,7 +572,10 @@ def _is_example_url_cred(secret: str) -> bool:
     if "{" in user or "{" in pw or "%25" in user or "%25" in pw:
         return True  # template de formato ({ENCODED_USER}) ou fixture de parser de URL
     if _EXAMPLE_HOST.match(match.group("host").lower()):
-        return True  # localhost / IP privado / example.* / *.test|.local|.invalid
+        # localhost / IP privado / example.* NÃO é passe-livre por si só: uma senha
+        # de ALTA ENTROPIA contra um banco de dev é uma credencial real committada
+        # (bancos de dev vazam). Só é exemplo se a senha TAMBÉM parecer placeholder.
+        return not _pw_looks_real(pw)
     user_ph = user in _PLACEHOLDER_USERS or set(user) <= {"x"}
     pw_ph = (
         pw in _PLACEHOLDER_PWS
@@ -581,3 +619,118 @@ def is_probable_hash_or_id(token: str) -> bool:
     da linha — não pela forma do token.
     """
     return bool(_UUID.match(token) or _GIT_SHA.match(token))
+
+
+# --------------------------------------------------------------------------- #
+# Aparência de segredo: pontuação MULTI-SINAL (não um limiar rígido único)
+# --------------------------------------------------------------------------- #
+# A entropia de Shannon por-alfabeto (`is_high_entropy`) subestima cadeias de UMA
+# única classe (ex.: 32 letras MAIÚSCULAS aleatórias): o alfabeto teórico é 36, mas
+# só 26 símbolos aparecem, e o token cai abaixo do limiar mesmo sendo aleatório. O
+# discriminante barato que sobra é a IMPRONUNCIABILIDADE: uma sequência aleatória de
+# letras acumula corridas longas de consoantes que palavras/identificadores legíveis
+# (`get_user_by_email`, `AbstractFactoryBean`) não têm. É um SINAL adicional, somado
+# à entropia — nunca um filtro que substitui os outros.
+
+_CONSOANTES = re.compile(r"[bcdfghjklmnpqrstvwxyz]+", re.IGNORECASE)
+#: hex de 32+ (`openssl rand -hex 16/32`, md5, sha256) — formato de segredo conhecido.
+_HEX_SECRET = re.compile(r"^[0-9a-fA-F]{32,}$")
+
+
+def _max_consonant_run(token: str) -> int:
+    """Maior corrida de consoantes (só LETRAS; vogais, dígitos e símbolos quebram)."""
+    return max((len(m.group()) for m in _CONSOANTES.finditer(token)), default=0)
+
+
+def _num_char_classes(value: str) -> int:
+    """Quantas das 4 classes (minúscula/maiúscula/dígito/símbolo) o valor mistura."""
+    return sum(
+        (
+            any(c.islower() for c in value),
+            any(c.isupper() for c in value),
+            any(c.isdigit() for c in value),
+            any(not c.isalnum() for c in value),
+        )
+    )
+
+
+def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> bool:
+    """Um token isolado (segmento de path, cadeia solta) parece gerado aleatoriamente?
+
+    Multi-sinal: entropia alta por-alfabeto **OU** impronunciabilidade (corrida longa
+    de consoantes) numa cadeia longa. UUID/SHA-1 são estrutura de hash, não segredo.
+    """
+    if len(token) < min_length:
+        return False
+    if is_probable_hash_or_id(token):
+        return False
+    if is_high_entropy(token):
+        return True
+    return _max_consonant_run(token) >= 6
+
+
+def _pw_looks_real(pw: str) -> bool:
+    """Senha embutida em URL parece um segredo REAL (não `pass`/`changeme`/`postgres`)?
+
+    Usado para decidir se uma URL contra host local/privado ainda é vazamento.
+    """
+    if pw in _PLACEHOLDER_PWS or set(pw) <= {"x"}:
+        return False
+    if any(w in pw for w in ("changeme", "example", "pass", "secret")):
+        return False
+    return (
+        is_high_entropy(pw, min_length=12)
+        or _num_char_classes(pw) >= 3
+        or _max_consonant_run(pw) >= 6
+    )
+
+
+# Palavras que aparecem em VALORES de teste/fixture mas nunca dentro de um segredo real
+# aleatório. Usadas só pela `generic-assignment`, e só abaixo do gate de alta entropia.
+_TEST_VALUE_MARKERS: tuple[str, ...] = (
+    "teste",
+    "senha",
+    "segredo",
+    "test",
+    "fixture",
+    "example",
+    "exemplo",
+    "dummy",
+    "sample",
+    "changeme",
+    "placeholder",
+    "fake",
+    "mock",
+)
+
+
+def looks_like_secret_value(value: str) -> bool:
+    """O VALOR atribuído a uma chave sensível parece um segredo? (piso da genérica)
+
+    A `generic-assignment` casava qualquer literal de 8+ chars, afogando o relatório
+    em `mynewpassword`/`wrong password`/nome de bind-var do psql. Este piso multi-sinal
+    exige que o valor PAREÇA segredo, sem cair no extremo oposto (derrubar senha humana
+    curta legítima como `Brasil@2024` ou `Cliente1234567890`):
+
+    * valor com espaço em branco → nunca é um token (mata `wrong password`);
+    * entropia alta OU formato hex conhecido → aceita chaves/hashes;
+    * 3+ classes de caracteres → aceita senhas humanas mistas (`S3cr3tP4ss…`);
+    * uma classe só, mas longa e impronunciável → aceita blob MAIÚSCULO aleatório;
+    * caso contrário (identificador legível `monitoring_password`) → rejeita.
+    """
+    if any(c.isspace() for c in value):
+        return False
+    if is_high_entropy(value) or _HEX_SECRET.match(value):
+        return True
+    # Marcador de TESTE/placeholder no VALOR (palavra que um segredo real não carrega):
+    # `senha-teste-1`, `nova-senha-teste-9`, `Test@2026!` passavam pelo ramo "3 classes"
+    # apesar de baixa entropia. Só suprime AQUI, abaixo do gate de alta entropia — um
+    # segredo real (`openssl rand`) já retornou True acima e nunca chega neste ponto,
+    # então isto reduz FP sem criar FN. Marcadores curtos ('test') são seguros porque
+    # (a) só agem sob baixa entropia e (b) só afetam a `generic-assignment`.
+    low = value.lower()
+    if looks_like_placeholder(value) or any(m in low for m in _TEST_VALUE_MARKERS):
+        return False
+    if _num_char_classes(value) >= 3:
+        return True
+    return len(value) >= MIN_SECRET_LEN and _max_consonant_run(value) >= 6

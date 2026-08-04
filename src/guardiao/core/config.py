@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from pathlib import PurePath
+
+# Sinais de que um arquivo é de TESTE — usados como SINAL SUAVE (rebaixa severidade
+# de achados heurísticos), nunca como filtro que suprime. Um segredo de FORMATO
+# (chave de fornecedor, PEM, dotenv, secret-in-path) num teste continua importante:
+# o F-007 do ledger vive num `test_*.py`. Cobre tests/, test_x.py, x_test.py,
+# conftest.py, locustfile.py e specs de JS (*.spec.*, *.test.*).
+_TEST_DIR_SEGMENTS: frozenset[str] = frozenset({"tests", "test", "__tests__", "testing"})
+_TEST_FILE_RE = re.compile(
+    r"(?:^test_.*\.py$|^.*_test\.py$|^conftest\.py$|^locustfile\.py$"
+    r"|^.*\.(?:test|spec)\.[jt]sx?$|^test_.*\.(?:js|ts)$)",
+    re.IGNORECASE,
+)
 
 DEFAULT_EXCLUDE_DIRS: frozenset[str] = frozenset(
     {
@@ -103,6 +117,16 @@ class Config:
     only: frozenset[str] = field(default_factory=frozenset)
     skip: frozenset[str] = field(default_factory=frozenset)
     skip_categories: frozenset[str] = field(default_factory=frozenset)
+    #: Rebaixa a severidade de achados HEURÍSTICOS (generic-assignment, high-entropy)
+    #: em arquivos de teste — sinal suave, não skip. `--incluir-testes` desliga.
+    demote_tests: bool = True
+
+    def is_test_path(self, path: str) -> bool:
+        """Heurística: este caminho é de um arquivo de teste?"""
+        pure = PurePath(str(path).replace("\\", "/"))
+        if any(seg.lower() in _TEST_DIR_SEGMENTS for seg in pure.parts):
+            return True
+        return bool(_TEST_FILE_RE.match(pure.name))
 
     def is_noise_file(self, name: str) -> bool:
         """Lockfile/gerado/minificado — pulado por padrão (ruído de hashes)."""

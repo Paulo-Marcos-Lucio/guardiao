@@ -97,12 +97,46 @@ def _eligible(path: Path, config: Config, skipped: dict[str, int]) -> bool:
     return True
 
 
+#: BOMs que marcam, sem ambiguidade, o encoding de um arquivo de texto. A ordem
+#: importa: o BOM de UTF-32 LE (``ff fe 00 00``) COMEÇA com o BOM de UTF-16 LE
+#: (``ff fe``); testar o de 4 bytes antes evita ler um arquivo UTF-32 como UTF-16.
+#: Os codecs ``utf-16``/``utf-32`` (sem sufixo de endianness) consomem e removem o
+#: BOM ao decodificar, escolhendo o endianness por ele.
+_BOMS: tuple[tuple[bytes, str], ...] = (
+    (b"\xef\xbb\xbf", "utf-8-sig"),
+    (b"\xff\xfe\x00\x00", "utf-32"),
+    (b"\x00\x00\xfe\xff", "utf-32"),
+    (b"\xff\xfe", "utf-16"),
+    (b"\xfe\xff", "utf-16"),
+)
+
+
+def decode_text_bytes(raw: bytes) -> str | None:
+    """Decodifica bytes de arquivo em texto, ou ``None`` se parecer binário.
+
+    Um arquivo com **BOM** (o Bloco de Notas, o ``>`` do PowerShell e muitas configs
+    .NET gravam UTF-16 no Windows) é decodificado pelo codec que o BOM anuncia. Sem
+    isso, os NUL de intercalação do UTF-16 (``t\\x00o\\x00k\\x00…``) faziam o arquivo
+    parecer binário pela heurística de NUL — e o segredo passava batido em silêncio
+    (cegueira de contexto de encoding). Sem BOM, mantém a heurística: NUL nos
+    primeiros 8 KiB ⇒ binário (``None``); caso contrário decodifica como UTF-8,
+    substituindo bytes inválidos (latin-1/quebrado ainda rende o texto ASCII).
+    """
+    for bom, codec in _BOMS:
+        if raw.startswith(bom):
+            try:
+                return raw.decode(codec, errors="replace")
+            except (LookupError, ValueError):  # pragma: no cover - defensivo
+                break
+    if b"\x00" in raw[:8192]:
+        return None
+    return raw.decode("utf-8", errors="replace")
+
+
 def read_text(path: Path) -> str | None:
     """Lê o arquivo como texto; devolve ``None`` se parecer binário."""
     try:
         raw = path.read_bytes()
     except OSError:  # pragma: no cover - fs edge
         return None
-    if b"\x00" in raw[:8192]:
-        return None
-    return raw.decode("utf-8", errors="replace")
+    return decode_text_bytes(raw)

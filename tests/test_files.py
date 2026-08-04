@@ -11,8 +11,8 @@ import pytest
 
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
-from guardiao.sources.files import read_text
-from tests.conftest import AWS_KEY_ID
+from guardiao.sources.files import decode_text_bytes, read_text
+from tests.conftest import AWS_KEY_ID, GH_TOKEN
 
 
 def _arvore_com_fuga(tmp_path: Path) -> tuple[Path, Path]:
@@ -74,5 +74,49 @@ def test_read_text_recusa_binario(tmp_path: Path) -> None:
 def test_extensao_binaria_nem_e_aberta(tmp_path: Path) -> None:
     (tmp_path / "logo.png").write_text(f"{AWS_KEY_ID}\n", encoding="utf-8")
     resultado = Scanner(config=Config()).scan_paths([tmp_path])
+    assert resultado.findings == []
+    assert resultado.skipped["binario"] == 1
+
+
+# ------------------------------------------------------------------ #
+# Cegueira de encoding: arquivo com BOM (UTF-16/UTF-32) NÃO é binário.
+# No Windows, Bloco de Notas/PowerShell/.NET gravam UTF-16 — os NUL de
+# intercalação faziam o segredo passar batido como "binário".
+# ------------------------------------------------------------------ #
+@pytest.mark.parametrize(
+    "encoding",
+    ["utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le", "utf-32-be", "utf-8-sig"],
+)
+def test_arquivo_com_bom_e_lido_e_o_segredo_encontrado(tmp_path: Path, encoding: str) -> None:
+    linha = f'token = "{GH_TOKEN}"\n'
+    raw = linha.encode(encoding)
+    # utf-16-le/be e utf-32-le/be do Python NÃO gravam BOM — anexa manualmente
+    # (é assim que Notepad/PowerShell gravam de verdade).
+    boms = {
+        "utf-16-le": b"\xff\xfe",
+        "utf-16-be": b"\xfe\xff",
+        "utf-32-le": b"\xff\xfe\x00\x00",
+        "utf-32-be": b"\x00\x00\xfe\xff",
+    }
+    if encoding in boms:
+        raw = boms[encoding] + raw
+    texto = decode_text_bytes(raw)
+    assert texto is not None, f"{encoding} foi tratado como binário"
+    assert GH_TOKEN in texto
+
+    alvo = tmp_path / "config.txt"
+    alvo.write_bytes(raw)
+    resultado = Scanner().scan_paths([alvo])
+    assert len(resultado.findings) == 1, f"segredo em {encoding} não foi encontrado"
+    assert resultado.findings[0].secret == GH_TOKEN
+
+
+def test_binario_sem_bom_continua_sendo_pulado(tmp_path: Path) -> None:
+    """A correção de BOM não pode passar a varrer binário de verdade: sem BOM, NUL
+    nos primeiros 8 KiB ainda significa binário."""
+    alvo = tmp_path / "dados.bin"
+    alvo.write_bytes(b"\x00\x01\x02\x03" * 64 + GH_TOKEN.encode())
+    assert decode_text_bytes(alvo.read_bytes()) is None
+    resultado = Scanner().scan_paths([alvo])
     assert resultado.findings == []
     assert resultado.skipped["binario"] == 1

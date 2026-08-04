@@ -9,8 +9,9 @@ import pytest
 
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
+from guardiao.sources import githistory
 from guardiao.sources.githistory import GitError, iter_history_blobs
-from tests.conftest import AWS_KEY_ID
+from tests.conftest import AWS_KEY_ID, GH_TOKEN
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git não disponível")
 
@@ -83,6 +84,22 @@ def test_blob_solto_de_commit_amend_e_varrido(tmp_path: Path) -> None:
     )
 
 
+def test_historico_deduplica_o_mesmo_segredo_por_fingerprint(tmp_path: Path) -> None:
+    """O MESMO segredo reaparece em todo commit que tocou o arquivo. Sem dedup, 3
+    commits viravam 3 achados idênticos (na Bússola: 283 linhas ~= 64 vazamentos)."""
+    repo = _repo(tmp_path)
+    alvo = repo / "config.py"
+    for i in range(3):
+        alvo.write_text(f'# rev {i}\nAWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+        _git(repo, "add", "config.py")
+        _git(repo, "commit", "-m", f"c{i}")
+
+    aws = [f for f in Scanner().scan_git_history(repo).findings if f.rule_id == "aws-access-key-id"]
+    assert len(aws) == 1, "o mesmo segredo em 3 commits deve virar UM achado"
+    assert aws[0].occurrences >= 3, "a contagem de recidivas some no relatório"
+    assert aws[0].location.commit is not None and aws[0].commit_last is not None
+
+
 def test_clone_raso_falha_fechado(tmp_path: Path) -> None:
     """Num clone raso o `--git-history` só enxerga os commits baixados. Reportar
     sucesso nisso é prometer uma varredura que não aconteceu."""
@@ -122,3 +139,46 @@ def test_blob_gigante_nao_vira_memoria(tmp_path: Path) -> None:
     assert [f for f in resultado.findings if f.rule_id == "aws-access-key-id"]
     assert resultado.skipped["tamanho"] >= 1
     assert pico < 4_000_000, f"pico de {pico / 1e6:.1f} MB para um limite de 1 MB"
+
+
+def test_blob_utf16_no_historico_e_varrido(tmp_path: Path) -> None:
+    """Config .NET / script PowerShell versionado é UTF-16: os NUL de intercalação
+    o faziam ser descartado como binário, e o segredo no histórico sumia."""
+    repo = _repo(tmp_path)
+    linha = f'token = "{GH_TOKEN}"\n'
+    (repo / "appsettings.txt").write_bytes(linha.encode("utf-16"))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "config utf-16")
+    achados = Scanner().scan_git_history(repo).findings
+    assert [f for f in achados if f.rule_id == "github-token"], (
+        "segredo em blob UTF-16 do histórico não foi encontrado"
+    )
+
+
+def test_cat_file_com_saida_de_erro_falha_alto_e_nao_vazio(tmp_path: Path, monkeypatch) -> None:
+    """Fail-open é o pior caso: se o `git cat-file` morre a meio do streaming (objeto
+    corrompido, I/O), o histórico foi varrido de forma INCOMPLETA. Sem a guarda de
+    returncode isso virava "0 achado, exit 0" e o gate de CI passava falso — aqui tem
+    de virar GitError (exit != 0)."""
+    import io
+
+    blob = f'token = "{GH_TOKEN}"\n'.encode()
+    stream = b"%b blob %d\n%b\n" % (b"a" * 40, len(blob), blob)
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = io.BytesIO(stream)
+            self.returncode: int | None = None
+
+        def wait(self) -> int:
+            self.returncode = 128  # cat-file morreu: objeto corrompido
+            return 128
+
+    monkeypatch.setattr(githistory.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(
+        githistory,
+        "_run",
+        lambda repo, *args: githistory._Result(True, "%s foo\n" % ("a" * 40), ""),
+    )
+    with pytest.raises(GitError, match="cat-file"):
+        list(iter_history_blobs(tmp_path))

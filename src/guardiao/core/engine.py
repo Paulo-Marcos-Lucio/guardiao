@@ -6,12 +6,12 @@ import functools
 import re
 import time
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fnmatch import fnmatch
 from pathlib import Path, PurePath
 
 from guardiao.core.config import Config
-from guardiao.core.entropy import is_high_entropy, shannon_entropy
+from guardiao.core.entropy import shannon_entropy
 from guardiao.core.models import Finding, Location, Severity
 from guardiao.core.redaction import redact, redact_spans
 from guardiao.rules.base import Rule
@@ -19,6 +19,7 @@ from guardiao.rules.definitions import (
     HASH_CONTEXT,
     is_probable_hash_or_id,
     looks_like_placeholder,
+    looks_like_secret_token,
 )
 from guardiao.rules.registry import all_rules
 from guardiao.sources.files import iter_files, read_text
@@ -26,12 +27,42 @@ from guardiao.sources.githistory import iter_history_blobs
 
 _ALLOW_MARKERS = ("guardiao:allow", "guardiao: allow", "pragma: allowlist secret")
 
+#: Regras HEURÍSTICAS (sem formato de fornecedor) cuja severidade é rebaixada em
+#: arquivos de teste — sinal SUAVE, não skip. As regras de FORMATO (secret-in-path,
+#: dotenv, tokens de fornecedor, PEM, connection-uri) ficam IMUNES: um segredo de
+#: formato num teste continua sendo um segredo (o F-007 do ledger mora num teste).
+_DEMOTABLE_IN_TESTS: frozenset[str] = frozenset({"generic-assignment", "high-entropy-string"})
+
+
+def _one_notch_down(sev: Severity) -> Severity:
+    """Severidade um degrau abaixo (MEDIUM→LOW); INFO é o piso."""
+    alvo = max(Severity.INFO.rank, sev.rank - 1)
+    return next(s for s in Severity if s.rank == alvo)
+
+
 #: Motivos pelos quais conteúdo deixa de ser analisado. Sempre reportados (mesmo
 #: zerados) — "não olhei" e "olhei e está limpo" precisam ser distinguíveis.
 MOTIVOS_DE_PULO: tuple[str, ...] = ("tamanho", "ruido", "binario", "linha_longa")
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
 Unit = tuple[str, str, "str | None"]
+
+
+#: Delimitadores de bloco PEM (certificado, chave, CRL, requisição).
+_PEM_ABRE_RE = re.compile(r"^-{5}BEGIN [A-Z0-9 ]+-{5}\s*$")
+_PEM_FECHA_RE = re.compile(r"^-{5}END [A-Z0-9 ]+-{5}\s*$")
+
+#: Linha inteira de base64 contíguo, fora de bloco delimitado (blob solto, objeto Git).
+_CORPO_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]{40,}={0,2}$")
+
+
+def _e_corpo_base64(linha: str) -> bool:
+    """A linha é corpo base64 solto, sem estrutura de conteúdo?
+
+    Complementa o rastreamento de bloco PEM para o caso em que só o corpo chega
+    (um blob de objeto Git, um trecho colado sem cabeçalho).
+    """
+    return _CORPO_BASE64_RE.fullmatch(linha.strip()) is not None
 
 
 @functools.cache
@@ -108,8 +139,14 @@ class Scanner:
         """Produz os achados de um texto. ``contadores`` acumula pulos/descartes."""
         contadores = {} if contadores is None else contadores
         rules = self._rules_for(path)
+        em_teste = self.config.demote_tests and self.config.is_test_path(path)
+        dentro_de_pem = False
         for lineno, line in enumerate(text.split("\n"), start=1):
             raw_line = line.removesuffix("\r")  # conta linhas só por \n (igual ao editor/GitHub)
+            if _PEM_ABRE_RE.match(raw_line):
+                dentro_de_pem = True
+            elif _PEM_FECHA_RE.match(raw_line):
+                dentro_de_pem = False
             if len(raw_line) > self.config.max_line_length:
                 contadores["linha_longa"] = contadores.get("linha_longa", 0) + 1
                 continue
@@ -119,7 +156,16 @@ class Scanner:
             # 1) Coleta todos os matches da linha que sobrevivem aos filtros.
             hits: list[tuple[Rule, int, str, float]] = []
             contexto_de_hash: bool | None = None
+            # Corpo de PEM não é conteúdo: é payload codificado. O alfabeto base64
+            # inclui `/`, então `secret-in-path` via um "segredo em path" a cada barra —
+            # um único `certifi/cacert.pem` (CAs PÚBLICAS) rendia 821 achados, e todo
+            # virtualenv tem esse arquivo. Só as regras de ENTROPIA são neutralizadas:
+            # as de fornecedor (`AKIA…`, `ghp_…`) e a de chave privada casam por prefixo
+            # ou pelo cabeçalho `-----BEGIN…`, que continuam sendo lidos normalmente.
+            payload_codificado = dentro_de_pem or _e_corpo_base64(raw_line)
             for rule in rules:
+                if payload_codificado and rule.category == "entropy":
+                    continue
                 keyword_re = _keyword_pattern(rule.keywords)
                 if keyword_re is not None and keyword_re.search(raw_line) is None:
                     continue
@@ -141,7 +187,10 @@ class Scanner:
                         continue
                     start = match.start(group)
                     if rule.category == "entropy":
-                        if not is_high_entropy(secret):
+                        # Aceitação multi-sinal: entropia por-alfabeto OU
+                        # impronunciabilidade (blob MAIÚSCULO aleatório que o limiar de
+                        # entropia subestima). Segmento de path aleatório entra por aqui.
+                        if not looks_like_secret_token(secret):
                             continue
                         if is_probable_hash_or_id(secret):
                             continue  # UUID / SHA-1 de commit / pin não são segredos
@@ -167,10 +216,15 @@ class Scanner:
 
             # 3) Um Finding por match, todos com o mesmo preview seguro.
             for rule, start, secret, entropy in hits:
+                severity = rule.severity
+                if em_teste and rule.id in _DEMOTABLE_IN_TESTS:
+                    # Sinal suave: em teste, o palpite heurístico vale menos — mas
+                    # continua REPORTADO (rebaixado), nunca suprimido.
+                    severity = _one_notch_down(severity)
                 yield Finding(
                     rule_id=rule.id,
                     title=rule.title,
-                    severity=rule.severity,
+                    severity=severity,
                     location=Location(path=path, line=lineno, column=start + 1, commit=commit),
                     secret=secret,
                     redacted=redact(secret),
@@ -237,7 +291,12 @@ class Scanner:
                 permitir_shallow=permitir_shallow,
             )
         )
-        return self.scan_units(units, skipped)
+        result = self.scan_units(units, skipped)
+        # O MESMO segredo persiste em dezenas de blobs (todo commit que tocou o arquivo
+        # o recarrega): 283 linhas brutas eram ~64 vazamentos distintos. Colapsa por
+        # fingerprint (regra+arquivo+valor ocultado) em UM achado, contando as recidivas.
+        result.findings = _collapse_history(result.findings)
+        return result
 
 
 def _file_units(
@@ -263,10 +322,23 @@ def _dedupe_overlapping(
     hits: list[tuple[Rule, int, str, float]],
 ) -> list[tuple[Rule, int, str, float]]:
     """Mantém, entre matches que cobrem o mesmo trecho, o de maior severidade — e, no
-    empate, a regra específica antes da genérica de entropia."""
+    empate, a regra específica antes da genérica de entropia.
+
+    ``high-entropy-string`` é o fallback MAIS genérico (casa qualquer cadeia, inclusive
+    o path inteiro diluído): perde o empate para qualquer outra regra de entropia, como
+    a precisa ``secret-in-path`` — senão o rótulo genérico (e rebaixável em teste)
+    soterrava o achado de formato, exatamente o caso do F-007."""
     if len(hits) < 2:
         return hits
-    ordered = sorted(hits, key=lambda h: (-h[0].severity.rank, h[0].category == "entropy", h[0].id))
+    ordered = sorted(
+        hits,
+        key=lambda h: (
+            -h[0].severity.rank,
+            h[0].category == "entropy",
+            h[0].id == "high-entropy-string",
+            h[0].id,
+        ),
+    )
     kept: list[tuple[Rule, int, str, float]] = []
     for hit in ordered:
         _, start, secret, _ = hit
@@ -274,6 +346,30 @@ def _dedupe_overlapping(
         if any(a1 < ks + len(ksec) and ks < a2 for (_, ks, ksec, _) in kept):
             continue  # sobrepõe um já mantido (mais severo/específico)
         kept.append(hit)
+    return kept
+
+
+def _collapse_history(findings: list[Finding]) -> list[Finding]:
+    """Colapsa achados idênticos (mesma fingerprint) vindos de blobs diferentes do
+    histórico num único achado, acumulando ``occurrences`` e o último commit visto.
+
+    O primeiro commit permanece em ``location.commit``; o mais recente (na ordem de
+    varredura) vai para ``commit_last``. Preserva a ordenação de entrada.
+    """
+    indice: dict[str, int] = {}
+    kept: list[Finding] = []
+    for f in findings:
+        fp = f.fingerprint
+        if fp in indice:
+            anterior = kept[indice[fp]]
+            kept[indice[fp]] = replace(
+                anterior,
+                occurrences=anterior.occurrences + 1,
+                commit_last=f.location.commit,
+            )
+        else:
+            indice[fp] = len(kept)
+            kept.append(f)
     return kept
 
 

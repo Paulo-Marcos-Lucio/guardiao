@@ -1,0 +1,3 @@
+service: api
+api_token: DNEAPJJKMNDLAOIEHEJLGOHBBHEIALEBPBEMEPIE
+replicas: 2

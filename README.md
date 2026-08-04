@@ -66,14 +66,22 @@ O Guardião foi feito para os dois momentos:
 
 Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (começando por *rotacionar*) e classificação **OWASP + CWE**.
 
-> **Precisão medida em campo — desta engine, a pública.** Numa bateria contra código
-> real: **recall de 100% — os 16 tipos de segredo plantados em formato de produção
-> foram todos encontrados** — a um custo de **2,16 falsos-positivos por 1.000 arquivos**
-> de código varrido. A calibração que produz esses números **está neste repositório**;
-> não há motor secreto. Exemplo concreto do que a calibração corrigiu: a chave
-> `sk_live_…` que por acaso contém a sequência `abcdefgh` **não é mais engolida** pelo
-> filtro de placeholder — antes uma credencial CRÍTICA sumia em silêncio por coincidir
-> com 8 letras de um exemplo de documentação.
+> **O que foi medido, contra o quê, e com que margem.** Corpus rotulado versionado em
+> [`bench/`](./bench) — 14 segredos plantados em formato de produção e 14 linhas-armadilha.
+> Nesta versão (commit desta árvore, medido em 2026-08-04, Python 3.12/Windows):
+> **recall 13/14 = 93% · IC95% [69% ; 99%] · zero falso-positivo** nas armadilhas.
+> Rode você mesmo: `guardiao scan bench -f json -o r.json && python bench/avaliar.py r.json`.
+>
+> Isto é **laboratório, não campo**: os segredos foram plantados por mim, então o número
+> mede cobertura de formato conhecido — não acurácia contra uma base arbitrária. Com n=14
+> o intervalo é largo, e é por isso que ele está escrito aqui em vez de um número redondo.
+> O único caso que escapa é um blob de alta entropia **sem contexto nenhum** — escolha
+> deliberada, porque perseguir entropia solta é a maior fonte de ruído em código real.
+>
+> A calibração que produz esses números **está neste repositório**; não há motor secreto.
+> Exemplo concreto do que ela corrigiu: a chave `sk_live_…` que por acaso contém a sequência
+> `abcdefgh` **não é mais engolida** pelo filtro de placeholder — antes uma credencial
+> CRÍTICA sumia em silêncio por coincidir com 8 letras de um exemplo de documentação.
 
 ### Como evita falso-positivo
 
@@ -230,11 +238,14 @@ realmente quiser varrer o histórico parcial).
 
 ## 🔓 Versão Pro (privada) — é SERVIÇO, não outro motor
 
-Sendo direto, porque aqui a honestidade é o produto: **a ferramenta deste repo já é a engine calibrada.** Não existe um "motor mais forte" escondido no privado. O repositório Pro é um *snapshot* do **mesmo código** que você acabou de ler — a mesma detecção, os mesmos 100% de recall, os mesmos 2,16 FP/1.000. O que você roda de graça é exatamente o que eu rodo num contrato. O Pro não é outra detecção; é **trabalho humano conduzido por mim** em cima da mesma engine:
+Sendo direto, porque aqui a honestidade é o produto: **a ferramenta deste repo já é a engine calibrada,
+e é a mais completa que existe.** Não há motor mais forte escondido no privado — nem versão melhor em
+lugar nenhum. O que você roda de graça é exatamente o que eu rodo num contrato. O Pro não é outra
+detecção; é **trabalho humano conduzido por mim** em cima desta engine:
 
 | | **Ferramenta pública (você roda)** | **Pro / serviço (eu conduzo com você)** |
 | --- | --- | --- |
-| **Motor de detecção** | A mesma engine deste repo — recall **100%**, **2,16 FP/1.000** em campo | **A mesma engine.** Nenhuma linha de detecção a mais no privado |
+| **Motor de detecção** | Esta engine — recall 13/14 no corpus de [`bench/`](./bench), zero falso-positivo | **A mesma engine, sem uma linha a mais.** O que você paga é a condução, não o motor |
 | **Escopo** | O caminho ou repositório que você aponta | **A organização inteira**: todos os repositórios e **todo o histórico Git**, não só o `HEAD` |
 | **Triagem** | Você lê o relatório e adjudica cada achado | Eu **trio cada achado** como verdadeiro ou falso-positivo e entrego a lista já limpa — sem despejar ruído no time |
 | **Rotação** | A ferramenta acha; rotacionar é com você (ela *não* rotaciona) | **Plano de rotação por provedor**, passo a passo, + **reteste que comprova** que a credencial saiu de circulação |
