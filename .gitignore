@@ -28,3 +28,7 @@ coverage.xml
 .vscode/
 .DS_Store
 gbd.json
+
+# Fixtures com segredo em formato de produção: gerados por `python bench/gerar.py`.
+# Versionar o literal faria o push protection do GitHub recusar — e ele estaria certo.
+bench/positivos/stripe.js

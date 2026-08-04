@@ -360,7 +360,8 @@ def test_arquivo_de_teste_rebaixa_heuristica_mas_nao_suprime() -> None:
     assert teste.severity is Severity.LOW  # rebaixado, mas AINDA reportado
     # --incluir-testes desliga o rebaixe
     sem_rebaixe = next(
-        f for f in Scanner(config=Config(demote_tests=False)).scan_text("tests/test_config.py", line)
+        f
+        for f in Scanner(config=Config(demote_tests=False)).scan_text("tests/test_config.py", line)
     )
     assert sem_rebaixe.severity is Severity.MEDIUM
 
@@ -390,3 +391,42 @@ def test_fingerprint_muda_com_arquivo_e_com_o_valor_ocultado() -> None:
     movido = next(iter(Scanner().scan_text("a.py", f'# nova linha\nk = "{AWS_KEY_ID}"')))
     assert movido.location.line == 2
     assert movido.fingerprint == achado.fingerprint
+
+
+# --- Regressão P0 (auditoria 2026-08-04) -------------------------------------
+# A regra `secret-in-path` casava dentro do CORPO BASE64 de certificados: o alfabeto
+# base64 inclui `/`, então cada linha de um .pem virava vários "segredos em path".
+# Medido: 821 achados num único `certifi/cacert.pem` (bundle de CAs PÚBLICAS, zero
+# segredos). Todo venv Python tem esse arquivo — o relatório de um contrato sairia
+# com centenas de falsos positivos.
+
+_LINHA_PEM = "WpzmM+Yklvc/ulsrHHo1wtZn/qtmU9zHKPaSdFgHjKlZxCvBnMqWe2kfN/+NsRE8"
+
+
+def test_corpo_base64_de_certificado_nao_vira_segredo_em_path() -> None:
+    achados = list(Scanner(Config()).scan_text("cacert.pem", _LINHA_PEM))
+    assert [f.rule_id for f in achados] == [], f"falso positivo em corpo de PEM: {achados}"
+
+
+def test_bloco_pem_inteiro_nao_gera_ruido() -> None:
+    """Um certificado público completo não pode gerar nenhum achado."""
+    corpo = "\n".join([_LINHA_PEM] * 20)
+    pem = f"-----BEGIN CERTIFICATE-----\n{corpo}\n-----END CERTIFICATE-----\n"
+    assert list(Scanner(Config()).scan_text("cacert.pem", pem)) == []
+
+
+def test_chave_privada_continua_detectada() -> None:
+    """A correção não pode cegar o detector de chave privada, que é o achado mais grave."""
+    corpo = "\n".join([_LINHA_PEM] * 8)
+    pem = f"-----BEGIN RSA PRIVATE KEY-----\n{corpo}\n-----END RSA PRIVATE KEY-----\n"
+    ids = {f.rule_id for f in Scanner(Config()).scan_text("id_rsa", pem)}
+    assert ids, "a chave privada deixou de ser detectada"
+
+
+def test_token_em_url_real_continua_detectado() -> None:
+    """O verdadeiro positivo da regra não pode ser perdido: token aleatório em URL."""
+    linha = (
+        'webhook = "https://hooks.exemplo.com/services/T0A1B2C3/B9Z8Y7X6/kQ7mZp2rWvB4nT8xLc1JdEuH"'
+    )
+    ids = {f.rule_id for f in Scanner(Config()).scan_text("config.py", linha)}
+    assert ids, "token aleatório em URL deixou de ser detectado"

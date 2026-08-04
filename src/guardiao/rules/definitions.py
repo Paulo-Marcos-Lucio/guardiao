@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy, shannon_entropy
+from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy
 from guardiao.core.models import Severity
 from guardiao.rules.base import Rule, compile_rule
 from guardiao.rules.br import cnpj_valido, cpf_valido
@@ -110,9 +110,7 @@ _ENTROPIA_PATTERN = (
 # não diluir o token. O segmento é aceito/rejeitado depois pelo filtro multi-sinal da
 # categoria `entropy` (`looks_like_secret_token`), que separa token aleatório de slug
 # legível. A fronteira final aceita `/`, aspas, espaço, query/fragmento ou fim de linha.
-_SECRET_IN_PATH_PATTERN = (
-    r"/([A-Za-z0-9+_=-]{" + str(MIN_SECRET_LEN) + r",})(?=[/\"'\s?#]|$)"
-)
+_SECRET_IN_PATH_PATTERN = r"/([A-Za-z0-9+_=-]{" + str(MIN_SECRET_LEN) + r",})(?=[/\"'\s?#]|$)"
 
 # `.env` e amigos: ali `CHAVE=valor` sem aspas é o formato normal, e restringir a regra
 # a esses arquivos mantém o falso-positivo em zero por construção (em código-fonte,
@@ -680,16 +678,29 @@ def _pw_looks_real(pw: str) -> bool:
         return False
     if any(w in pw for w in ("changeme", "example", "pass", "secret")):
         return False
-    return is_high_entropy(pw, min_length=12) or _num_char_classes(pw) >= 3 or _max_consonant_run(
-        pw
-    ) >= 6
+    return (
+        is_high_entropy(pw, min_length=12)
+        or _num_char_classes(pw) >= 3
+        or _max_consonant_run(pw) >= 6
+    )
 
 
 # Palavras que aparecem em VALORES de teste/fixture mas nunca dentro de um segredo real
 # aleatório. Usadas só pela `generic-assignment`, e só abaixo do gate de alta entropia.
 _TEST_VALUE_MARKERS: tuple[str, ...] = (
-    "teste", "senha", "segredo", "test", "fixture", "example", "exemplo",
-    "dummy", "sample", "changeme", "placeholder", "fake", "mock",
+    "teste",
+    "senha",
+    "segredo",
+    "test",
+    "fixture",
+    "example",
+    "exemplo",
+    "dummy",
+    "sample",
+    "changeme",
+    "placeholder",
+    "fake",
+    "mock",
 )
 
 

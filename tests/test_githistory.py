@@ -176,7 +176,9 @@ def test_cat_file_com_saida_de_erro_falha_alto_e_nao_vazio(tmp_path: Path, monke
 
     monkeypatch.setattr(githistory.subprocess, "Popen", lambda *a, **k: FakeProc())
     monkeypatch.setattr(
-        githistory, "_run", lambda repo, *args: githistory._Result(True, "%s foo\n" % ("a" * 40), "")
+        githistory,
+        "_run",
+        lambda repo, *args: githistory._Result(True, "%s foo\n" % ("a" * 40), ""),
     )
     with pytest.raises(GitError, match="cat-file"):
         list(iter_history_blobs(tmp_path))

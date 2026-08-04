@@ -39,12 +39,30 @@ def _one_notch_down(sev: Severity) -> Severity:
     alvo = max(Severity.INFO.rank, sev.rank - 1)
     return next(s for s in Severity if s.rank == alvo)
 
+
 #: Motivos pelos quais conteúdo deixa de ser analisado. Sempre reportados (mesmo
 #: zerados) — "não olhei" e "olhei e está limpo" precisam ser distinguíveis.
 MOTIVOS_DE_PULO: tuple[str, ...] = ("tamanho", "ruido", "binario", "linha_longa")
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
 Unit = tuple[str, str, "str | None"]
+
+
+#: Delimitadores de bloco PEM (certificado, chave, CRL, requisição).
+_PEM_ABRE_RE = re.compile(r"^-{5}BEGIN [A-Z0-9 ]+-{5}\s*$")
+_PEM_FECHA_RE = re.compile(r"^-{5}END [A-Z0-9 ]+-{5}\s*$")
+
+#: Linha inteira de base64 contíguo, fora de bloco delimitado (blob solto, objeto Git).
+_CORPO_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]{40,}={0,2}$")
+
+
+def _e_corpo_base64(linha: str) -> bool:
+    """A linha é corpo base64 solto, sem estrutura de conteúdo?
+
+    Complementa o rastreamento de bloco PEM para o caso em que só o corpo chega
+    (um blob de objeto Git, um trecho colado sem cabeçalho).
+    """
+    return _CORPO_BASE64_RE.fullmatch(linha.strip()) is not None
 
 
 @functools.cache
@@ -122,8 +140,13 @@ class Scanner:
         contadores = {} if contadores is None else contadores
         rules = self._rules_for(path)
         em_teste = self.config.demote_tests and self.config.is_test_path(path)
+        dentro_de_pem = False
         for lineno, line in enumerate(text.split("\n"), start=1):
             raw_line = line.removesuffix("\r")  # conta linhas só por \n (igual ao editor/GitHub)
+            if _PEM_ABRE_RE.match(raw_line):
+                dentro_de_pem = True
+            elif _PEM_FECHA_RE.match(raw_line):
+                dentro_de_pem = False
             if len(raw_line) > self.config.max_line_length:
                 contadores["linha_longa"] = contadores.get("linha_longa", 0) + 1
                 continue
@@ -133,7 +156,16 @@ class Scanner:
             # 1) Coleta todos os matches da linha que sobrevivem aos filtros.
             hits: list[tuple[Rule, int, str, float]] = []
             contexto_de_hash: bool | None = None
+            # Corpo de PEM não é conteúdo: é payload codificado. O alfabeto base64
+            # inclui `/`, então `secret-in-path` via um "segredo em path" a cada barra —
+            # um único `certifi/cacert.pem` (CAs PÚBLICAS) rendia 821 achados, e todo
+            # virtualenv tem esse arquivo. Só as regras de ENTROPIA são neutralizadas:
+            # as de fornecedor (`AKIA…`, `ghp_…`) e a de chave privada casam por prefixo
+            # ou pelo cabeçalho `-----BEGIN…`, que continuam sendo lidos normalmente.
+            payload_codificado = dentro_de_pem or _e_corpo_base64(raw_line)
             for rule in rules:
+                if payload_codificado and rule.category == "entropy":
+                    continue
                 keyword_re = _keyword_pattern(rule.keywords)
                 if keyword_re is not None and keyword_re.search(raw_line) is None:
                     continue

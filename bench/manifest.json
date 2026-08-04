@@ -1,0 +1,170 @@
+[
+ {
+  "arquivo": "positivos/aws.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "aws-key-id"
+ },
+ {
+  "arquivo": "positivos/aws.py",
+  "linha": 2,
+  "eh_segredo": true,
+  "tipo": "aws-secret"
+ },
+ {
+  "arquivo": "positivos/github_pat.txt",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "github-pat"
+ },
+ {
+  "arquivo": "positivos/stripe.js",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "stripe-live"
+ },
+ {
+  "arquivo": "positivos/gcp.env",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "gcp-api"
+ },
+ {
+  "arquivo": "positivos/slack.txt",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "slack"
+ },
+ {
+  "arquivo": "positivos/conn.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "conn-string"
+ },
+ {
+  "arquivo": "positivos/hexkey.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "hex64-secret"
+ },
+ {
+  "arquivo": "positivos/privkey.pem",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "private-key"
+ },
+ {
+  "arquivo": "positivos/json_cfg.json",
+  "linha": 3,
+  "eh_segredo": true,
+  "tipo": "json-secret"
+ },
+ {
+  "arquivo": "positivos/yaml_cfg.yaml",
+  "linha": 2,
+  "eh_segredo": true,
+  "tipo": "yaml-secret"
+ },
+ {
+  "arquivo": "positivos/test_paths.py",
+  "linha": 2,
+  "eh_segredo": true,
+  "tipo": "path-embedded-secret-EM-TESTE"
+ },
+ {
+  "arquivo": "positivos/comment.py",
+  "linha": 3,
+  "eh_segredo": true,
+  "tipo": "secret-em-comentario"
+ },
+ {
+  "arquivo": "positivos/bare_blob.txt",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "blob-alta-entropia"
+ },
+ {
+  "arquivo": "negativos/test_literals.py",
+  "linha": 2,
+  "eh_segredo": false,
+  "tipo": "literal-teste"
+ },
+ {
+  "arquivo": "negativos/test_literals.py",
+  "linha": 3,
+  "eh_segredo": false,
+  "tipo": "placeholder"
+ },
+ {
+  "arquivo": "negativos/test_literals.py",
+  "linha": 4,
+  "eh_segredo": false,
+  "tipo": "placeholder"
+ },
+ {
+  "arquivo": "negativos/test_literals.py",
+  "linha": 5,
+  "eh_segredo": false,
+  "tipo": "placeholder"
+ },
+ {
+  "arquivo": "negativos/env.example",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "placeholder"
+ },
+ {
+  "arquivo": "negativos/env.example",
+  "linha": 2,
+  "eh_segredo": false,
+  "tipo": "placeholder"
+ },
+ {
+  "arquivo": "negativos/env.example",
+  "linha": 3,
+  "eh_segredo": false,
+  "tipo": "placeholder"
+ },
+ {
+  "arquivo": "negativos/env.example",
+  "linha": 4,
+  "eh_segredo": false,
+  "tipo": "placeholder"
+ },
+ {
+  "arquivo": "negativos/config.py",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "config-nao-secreto"
+ },
+ {
+  "arquivo": "negativos/config.py",
+  "linha": 2,
+  "eh_segredo": false,
+  "tipo": "config-nao-secreto"
+ },
+ {
+  "arquivo": "negativos/gitref.py",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "git-sha-hex40-NAO-secreto"
+ },
+ {
+  "arquivo": "negativos/ids.py",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "uuid-nao-secreto"
+ },
+ {
+  "arquivo": "negativos/ids.py",
+  "linha": 2,
+  "eh_segredo": false,
+  "tipo": "traceparent"
+ },
+ {
+  "arquivo": "negativos/docs.md",
+  "linha": 4,
+  "eh_segredo": false,
+  "tipo": "exemplo-em-doc"
+ }
+]

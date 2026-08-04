@@ -1,0 +1,5 @@
+{
+  "env": "prod",
+  "webhook_secret": "509bcf065e86b5932aa2aaa378974bb1bb987b01f328d47d",
+  "retries": 3
+}
