@@ -17,6 +17,7 @@ import re
 from guardiao import __version__
 from guardiao.core.engine import ScanResult
 from guardiao.core.models import Finding, Severity
+from guardiao.core.redaction import KEEP_PUBLICADO, redact
 from guardiao.rules.definitions import OWASP_EDITION
 from guardiao.rules.registry import all_rules
 
@@ -72,10 +73,13 @@ def _rule_descriptors() -> list[dict[str, object]]:
 
 
 def _result(finding: Finding) -> dict[str, object]:
+    # Ocultação de artefato PUBLICADO (2+2), não a do console (4+4): este texto sobe
+    # para a aba Security e fica legível para todo mundo que tem leitura no repositório.
+    ocultado = redact(finding.secret, keep=KEEP_PUBLICADO)
     return {
         "ruleId": finding.rule_id,
         "level": _SARIF_LEVEL[finding.severity],
-        "message": {"text": f"{finding.title}: {finding.redacted} — {finding.recommendation}"},
+        "message": {"text": f"{finding.title}: {ocultado} — {finding.recommendation}"},
         "locations": [
             {
                 "physicalLocation": {

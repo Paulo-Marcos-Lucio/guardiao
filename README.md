@@ -295,6 +295,7 @@ src/guardiao/
 Princípios de projeto:
 
 - **O segredo cru nunca sai.** Ele existe no objeto `Finding` só para mascarar a linha de contexto; os renderizadores usam exclusivamente o valor ocultado. Há teste garantindo que console, JSON, SARIF e baseline **não** contêm o segredo.
+- **Artefato publicado oculta mais.** Console e JSON mostram 4 caracteres de cada ponta (é o que faz o dono reconhecer *qual* credencial é). O **baseline** — que você versiona — e o **SARIF** — que sobe para o Code Scanning e fica legível para quem tem acesso ao repositório — mostram só **2 por ponta**: com 4+4, uma senha humana de 16 caracteres sai com metade em claro, e o resto é dicionário.
 - **Fingerprint publicável.** A identidade de um achado é `sha256(regra ‖ arquivo ‖ valor ocultado)` — deliberadamente **sem** o segredo cru e **sem** a linha. Sem o segredo porque um hash truncado de senha humana é um compromisso quebrável em microssegundos, e essa fingerprint viaja no SARIF publicado no Code Scanning e no baseline que você versiona. Sem a linha para que mover o código não feche e reabra o alerta no GitHub.
 - **Cada regra é dado, não código**: adicionar um detector é acrescentar uma entrada declarativa (regex + severidade + filtros). O motor é quem percorre a linha.
 - **Um pipeline só**: `scan`, `pre-commit` e `--git-history` desembocam no mesmo `Scanner.scan_units` e usam a mesma `Config` — um arquivo que o CI considera limpo não pode bloquear o commit.

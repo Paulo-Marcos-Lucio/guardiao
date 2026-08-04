@@ -5,6 +5,7 @@ from pathlib import Path
 
 from guardiao.core.baseline import apply_baseline, load_baseline, save_baseline
 from guardiao.core.engine import Scanner
+from guardiao.core.redaction import KEEP_PUBLICADO, redact
 
 
 def test_baseline_suppresses_known_but_keeps_new(planted_dir: Path, tmp_path: Path) -> None:
@@ -40,6 +41,26 @@ def test_baseline_file_has_no_raw_secret(planted_dir: Path, tmp_path: Path) -> N
     assert document["findings"]
 
 
+def test_baseline_nao_expoe_mais_de_2_chars_por_ponta(planted_dir: Path, tmp_path: Path) -> None:
+    """O README manda VERSIONAR este arquivo: o que entra nele fica no repositório do
+    cliente para sempre. Com os 4+4 do console, todo segredo de 13+ caracteres ia com
+    8 em claro — o cético reconstruiu uma senha humana de 16 chars a partir disso."""
+    resultado = Scanner().scan_paths([planted_dir])
+    caminho = tmp_path / "baseline.json"
+    save_baseline(caminho, resultado.findings)
+    texto = caminho.read_text(encoding="utf-8")
+
+    assert resultado.findings
+    for achado in resultado.findings:
+        segredo = achado.secret.strip()
+        assert segredo not in texto
+        # Nenhuma ponta mais larga que a publicável: se 3+3 aparecesse, 4+4 (o do
+        # console, que era o publicado) também apareceria.
+        assert redact(segredo, keep=3) not in texto, f"pontas largas de {achado.rule_id}"
+        assert redact(segredo, keep=KEEP_PUBLICADO) in texto
+    assert "AK…PD" in texto  # identificar a credencial continua possível
+
+
 def test_baseline_nao_promete_o_que_nao_cumpre(planted_dir: Path, tmp_path: Path) -> None:
     """O README manda VERSIONAR este arquivo. A nota tem que dizer de onde a
     fingerprint vem — a redação antiga ("não contém segredos") era falsa para
@@ -49,3 +70,7 @@ def test_baseline_nao_promete_o_que_nao_cumpre(planted_dir: Path, tmp_path: Path
     nota = json.loads(baseline_path.read_text(encoding="utf-8"))["note"]
     assert "valor ocultado" in nota
     assert "--update-baseline" in nota
+    # A nota afirmava que os valores "não permitem recuperar o segredo" — e o arquivo
+    # carregava 8 caracteres em claro. Prometer sigilo que o formato não entrega é
+    # pior do que não prometer nada: o cliente versiona confiando na frase.
+    assert "não permitem recuperar o segredo" not in nota

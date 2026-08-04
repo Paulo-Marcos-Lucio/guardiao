@@ -8,6 +8,7 @@ from rich.console import Console
 
 from guardiao.core.engine import Scanner
 from guardiao.core.models import Severity
+from guardiao.core.redaction import KEEP_PUBLICADO, redact
 from guardiao.report import console as console_report
 from guardiao.report.json_report import SCHEMA, to_document, to_json
 from guardiao.report.sarif import to_sarif
@@ -125,6 +126,24 @@ def test_sarif_is_valid_and_safe(planted_dir: Path) -> None:
     for res in run["results"]:
         assert res["ruleId"] in declared
         assert res["locations"][0]["physicalLocation"]["region"]["startLine"] >= 1
+
+
+def test_sarif_nao_expoe_mais_de_2_chars_por_ponta(planted_dir: Path) -> None:
+    """O SARIF sobe para o GitHub Code Scanning — quem tem leitura no repositório lê
+    o `message.text`. Publicar 4+4 caracteres de cada segredo ali é publicar metade
+    de uma senha humana num painel com plateia."""
+    resultado = Scanner().scan_paths([planted_dir])
+    payload = to_sarif(resultado)
+
+    assert resultado.findings
+    for achado in resultado.findings:
+        segredo = achado.secret.strip()
+        assert segredo not in payload
+        # Nenhuma ponta mais larga que a publicável: se 3+3 aparecesse, 4+4 (o do
+        # console, que era o publicado) também apareceria.
+        assert redact(segredo, keep=3) not in payload, f"pontas largas de {achado.rule_id}"
+        assert redact(segredo, keep=KEEP_PUBLICADO) in payload
+    assert "AK…PD" in payload  # identificar a credencial continua possível
 
 
 def test_sarif_respeita_as_restricoes_do_schema_2_1_0(planted_dir: Path) -> None:
