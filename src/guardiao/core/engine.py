@@ -42,7 +42,9 @@ def _one_notch_down(sev: Severity) -> Severity:
 
 #: Motivos pelos quais conteúdo deixa de ser analisado. Sempre reportados (mesmo
 #: zerados) — "não olhei" e "olhei e está limpo" precisam ser distinguíveis.
-MOTIVOS_DE_PULO: tuple[str, ...] = ("tamanho", "ruido", "binario", "linha_longa")
+#: ``diretorio`` conta ÁRVORES inteiras puladas (exclude_dirs/venv), não arquivos:
+#: é o motivo que mais esconde conteúdo e o último a ganhar contador.
+MOTIVOS_DE_PULO: tuple[str, ...] = ("diretorio", "tamanho", "ruido", "binario", "linha_longa")
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
 Unit = tuple[str, str, "str | None"]

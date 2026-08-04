@@ -73,6 +73,32 @@ def test_console_distingue_nao_olhei_de_esta_limpo(tmp_path: Path) -> None:
     assert "✓ Nenhum segredo encontrado." in limpo
 
 
+def test_console_e_json_declaram_diretorio_pulado(tmp_path: Path) -> None:
+    """Não olhei ≠ olhei e está limpo: um diretório inteiro pulado (vendor/,
+    dist/, venv) é o pulo que mais esconde, e sumia do relatório. O console tem de
+    trocar o tique verde pelo aviso, e o JSON tem de trazer o motivo `diretorio`
+    SEMPRE — mesmo zerado — para quem consome o laudo por máquina."""
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    (vendor / "config.py").write_text(f'AWS = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+
+    resultado = Scanner().scan_paths([tmp_path])
+    saida = _render(resultado)
+    assert "✓ Nenhum segredo encontrado." not in saida
+    assert "diretório" in saida
+
+    skipped = to_document(resultado)["summary"]["skipped"]  # type: ignore[index]
+    assert skipped["diretorio"] == 1
+
+    # e num diretório sem nenhuma pasta pulada o motivo continua declarado (zerado)
+    limpo = tmp_path / "limpo"
+    limpo.mkdir()
+    (limpo / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    zerado = to_document(Scanner().scan_paths([limpo]))["summary"]["skipped"]  # type: ignore[index]
+    assert zerado["diretorio"] == 0
+
+
 def test_console_nao_interpreta_markup_do_alvo(tmp_path: Path) -> None:
     """Markup do Rich vindo do alvo derrubava o relatório inteiro (MarkupError) e
     permitiria esconder um achado com `[black on black]`."""

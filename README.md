@@ -102,7 +102,7 @@ Honestidade primeiro — o que esta ferramenta **não** faz:
 - **CNPJ alfanumérico** (formato novo da Receita, `AA.AAA.AAA/AAAA-DD`) **não** é detectado — só o numérico.
 - **Segredo multilinha** (corpo de chave privada, JSON de service account) é detectado pelo cabeçalho, não pelo corpo: a varredura é linha a linha.
 - **Não reescreve histórico.** Achar é metade; `git filter-repo` e a rotação são trabalho separado.
-- **O que é pulado aparece no relatório** (`summary.skipped`): lockfile, binário, arquivo acima de `--max-file-size` e linha acima de `--max-line-length`. "Não olhei" e "olhei e está limpo" são saídas visualmente distintas.
+- **O que é pulado aparece no relatório** (`summary.skipped`): **diretório inteiro excluído** (`vendor/`, `dist/`, `node_modules/`, virtualenv), lockfile, binário, arquivo acima de `--max-file-size` e linha acima de `--max-line-length`. "Não olhei" e "olhei e está limpo" são saídas visualmente distintas.
 
 ---
 

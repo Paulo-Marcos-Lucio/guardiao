@@ -104,13 +104,29 @@ def _render_plano(result: ScanResult, console: Console) -> None:
 
 
 def _render_pulos(result: ScanResult, console: Console) -> None:
-    """Auditabilidade: o que a ferramenta deixou de olhar e o que ela descartou."""
-    if result.total_pulado():
-        detalhe = ", ".join(f"{motivo}: {n}" for motivo, n in result.skipped.items() if n)
+    """Auditabilidade: o que a ferramenta deixou de olhar e o que ela descartou.
+
+    Diretório pulado sai em linha PRÓPRIA e é declarado SEMPRE, mesmo zerado: ele não
+    é uma unidade (é uma árvore inteira, de tamanho desconhecido), e era o buraco pelo
+    qual um `ghp_` versionado em `vendor/` saía com tique verde e exit 0.
+    """
+    diretorios = result.skipped.get("diretorio", 0)
+    por_unidade = {m: n for m, n in result.skipped.items() if m != "diretorio" and n}
+    total_unidades = sum(por_unidade.values())
+    if total_unidades:
+        detalhe = ", ".join(f"{motivo}: {n}" for motivo, n in por_unidade.items())
         console.print(
-            f"[yellow]⚠ {result.total_pulado()} unidade(s)/linha(s) NÃO analisada(s)[/] "
+            f"[yellow]⚠ {total_unidades} unidade(s)/linha(s) NÃO analisada(s)[/] "
             f"[dim]({detalhe})[/] — veja --scan-lockfiles, --max-file-size e --max-line-length."
         )
+    if diretorios:
+        console.print(
+            f"[yellow]⚠ {diretorios} diretório(s) inteiro(s) NÃO varrido(s)[/] "
+            "[dim](exclude_dirs: vendor, dist, node_modules, .git… + virtualenvs)[/] — "
+            "nada do que estiver dentro deles foi analisado."
+        )
+    else:
+        console.print("[dim]0 diretório(s) pulado(s): a árvore foi percorrida inteira.[/]")
     if result.placeholders:
         console.print(
             f"[dim]{result.placeholders} valor(es) descartado(s) como placeholder "

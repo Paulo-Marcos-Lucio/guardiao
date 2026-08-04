@@ -62,6 +62,37 @@ def test_virtualenv_de_nome_atipico_e_pulado(tmp_path: Path) -> None:
     assert resultado.findings == []
 
 
+def test_diretorio_excluido_aparece_no_contador(tmp_path: Path) -> None:
+    """Pular um diretório inteiro é o pulo de MAIOR alcance da ferramenta — e era o
+    único que não entrava em `skipped`: um token real versionado em `vendor/` dava
+    "✓ Nenhum segredo encontrado" com todos os contadores zerados e exit 0, enquanto
+    o MESMO arquivo em stage bloqueava o commit. Os dois caminhos discordavam."""
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    (vendor / "config.py").write_text(f'GH = "{GH_TOKEN}"\n', encoding="utf-8")
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+
+    resultado = Scanner().scan_paths([tmp_path])
+
+    assert resultado.findings == []
+    assert resultado.skipped["diretorio"] == 1
+    assert resultado.total_pulado() == 1
+
+
+def test_venv_de_nome_atipico_tambem_entra_no_contador(tmp_path: Path) -> None:
+    """O venv detectado por `pyvenv.cfg` some do relatório pelo mesmo caminho do
+    `exclude_dirs` — contar só os nomes exatos deixaria metade do buraco aberto."""
+    venv = tmp_path / ".venv-locust"
+    (venv / "Lib").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+    (venv / "Lib" / "certo.py").write_text(f'K = "{AWS_KEY_ID}"\n', encoding="utf-8")
+
+    resultado = Scanner().scan_paths([tmp_path])
+
+    assert resultado.findings == []
+    assert resultado.skipped["diretorio"] == 1
+
+
 def test_read_text_recusa_binario(tmp_path: Path) -> None:
     alvo = tmp_path / "dados.bin"
     alvo.write_bytes(b"MZ\x00\x00" + AWS_KEY_ID.encode())
