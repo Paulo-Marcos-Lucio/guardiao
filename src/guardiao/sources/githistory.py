@@ -2,7 +2,9 @@
 
 Remover um segredo do código não o remove do histórico — ele continua acessível
 em commits antigos. Esta fonte varre **todos os blobs** já existentes no
-repositório, justamente onde segredos esquecidos costumam permanecer.
+repositório, justamente onde segredos esquecidos costumam permanecer, mais as
+**mensagens de commit e de tag anotada** (texto versionado que nenhum `git rm`
+alcança e onde a credencial cai colada junto do comando que a usou).
 
 Desempenho: um único ``git cat-file --batch --batch-all-objects`` transmite o
 conteúdo de todos os objetos por streaming, em vez de dois subprocessos por
@@ -43,8 +45,26 @@ def _git_env() -> dict[str, str]:
     return env
 
 
+#: Tipos de objeto cujo conteúdo é varrido. ``tree`` fica de fora (é só estrutura);
+#: ``commit`` e ``tag`` entram pela MENSAGEM — segredo em mensagem de commit é comum
+#: e nenhum `git rm` o remove.
+_TIPOS_VARRIDOS = frozenset({"blob", "commit", "tag"})
+
+
 class GitError(RuntimeError):
     """Falha ao interagir com o Git."""
+
+
+def _mensagem_do_objeto(bruto: str) -> str:
+    """Extrai só a MENSAGEM de um objeto commit/tag, sem os cabeçalhos.
+
+    Cabeçalho (``tree``, ``parent``, ``author``, ``tagger``…) é metadado do objeto:
+    varrê-lo encheria o laudo de ruído e de PII de quem commitou. A separação é a
+    primeira linha em branco — inclusive quando há ``gpgsig``, cujas linhas de
+    continuação começam com espaço e por isso nunca formam uma linha vazia de verdade.
+    """
+    _, separador, mensagem = bruto.partition("\n\n")
+    return mensagem if separador else ""
 
 
 @dataclass(frozen=True)
@@ -54,16 +74,49 @@ class Blob:
     text: str
 
 
+def _e_clone(repo: Path) -> bool:
+    """O repositório tem origem remota — ou seja, foi obtido por ``git clone``/``fetch``?
+
+    É a pergunta possível: não existe jeito de saber o que a origem tem e não foi
+    transferido. Ter ``remote.origin.url`` basta para o aviso ser verdadeiro, porque
+    nenhum objeto INALCANÇÁVEL da origem chega por protocolo — nem com ``--mirror``.
+    """
+    origem = _run(repo, "config", "--get", "remote.origin.url")
+    return origem.ok and bool(origem.out.strip())
+
+
+#: A URL do remoto NÃO entra nesta mensagem de propósito: usuário e token embutidos na
+#: URL (o formato `basic-auth-url`, que este mesmo scanner detecta) são a forma mais
+#: comum de credencial em config de CI — a ferramenta que procura segredo vazado não
+#: pode publicar um no próprio laudo.
+AVISO_CLONE = (
+    "Cobertura limitada: este repositório é um clone. `git clone`/`fetch` transferem "
+    "apenas objetos ALCANÇÁVEIS, então o que existir solto só na origem — blob de "
+    "`commit --amend`, rebase, branch deletado, stash — nunca chegou aqui e não foi "
+    "varrido (medido em auditoria: 7 achados no repositório original → 2 no clone). "
+    "Para alcance total, rode o --git-history no próprio repositório de origem ou numa "
+    "cópia feita por arquivo (`cp -a`, `git clone --local`), que preserva os objetos "
+    "soltos. Isto é uma declaração de limite, não um erro: nada aqui invalida o que foi "
+    "varrido."
+)
+
+
 def iter_history_blobs(
     repo: Path,
     *,
     max_bytes: int = 5_000_000,
     skipped: dict[str, int] | None = None,
     permitir_shallow: bool = False,
+    avisos: list[str] | None = None,
 ) -> Iterator[Blob]:
-    """Itera pelos blobs versionados em qualquer ponto da história."""
+    """Itera pelos blobs versionados em qualquer ponto da história.
+
+    ``avisos`` (opcional) acumula limites de ALCANCE conhecidos — o que a varredura
+    sabidamente não pôde ver. Diferente de ``skipped``, que conta o que foi pulado.
+    """
     repo = Path(repo)
     contador = {} if skipped is None else skipped
+    declarados = [] if avisos is None else avisos
 
     # 0) Clone raso só contém os commits baixados: varrer "todo o histórico" nele é
     #    uma promessa falsa. Falha fechado — o CI precisa saber que não olhou tudo.
@@ -74,6 +127,13 @@ def iter_history_blobs(
             "já baixados. Em GitHub Actions use actions/checkout com fetch-depth: 0, ou "
             "passe --permitir-shallow para varrer assim mesmo."
         )
+
+    # 0b) Clone COMPLETO não falha — declara. O raso acima é uma promessa quebrada
+    #     (o usuário pediu "todo o histórico" e nem os commits estão lá); aqui a
+    #     varredura é honesta dentro do que existe no disco, e travar o CI do cliente
+    #     por um limite do protocolo do git seria trocar um erro por outro.
+    if _e_clone(repo):
+        declarados.append(AVISO_CLONE)
 
     # 1) Mapa sha->path (o primeiro caminho visto para cada blob). Uma chamada só.
     listing = _run(repo, "rev-list", "--objects", "--all")
@@ -120,10 +180,10 @@ def iter_history_blobs(
 
             # Decidir ANTES de ler: um blob de 100 MB não pode virar 100 MB de RAM
             # só para ser descartado pelo limite logo depois.
-            if otype != "blob" or size > max_bytes:
+            if otype not in _TIPOS_VARRIDOS or size > max_bytes:
                 _descartar(stdout, size)
                 stdout.read(1)
-                if otype == "blob":
+                if otype in _TIPOS_VARRIDOS:
                     contador["tamanho"] = contador.get("tamanho", 0) + 1
                 continue
 
@@ -135,6 +195,15 @@ def iter_history_blobs(
             text = decode_text_bytes(content)
             if text is None:
                 contador["binario"] = contador.get("binario", 0) + 1
+                continue
+            if otype != "blob":
+                # Mensagem de commit/tag é conteúdo versionado como qualquer outro, e
+                # é onde a credencial cai quando alguém cola o comando que rodou
+                # ("subi com a chave X") ou as notas de release.
+                mensagem = _mensagem_do_objeto(text)
+                if mensagem.strip():
+                    rotulo = "do commit" if otype == "commit" else "da tag"
+                    yield Blob(sha=sha[:12], path=f"<mensagem {rotulo} {sha[:12]}>", text=mensagem)
                 continue
             # Blob sem caminho conhecido = objeto **solto** (o que sobra de um
             # `commit --amend`, `rebase` ou `reset`): é justamente onde o segredo

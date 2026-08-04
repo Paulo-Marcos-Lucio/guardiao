@@ -15,6 +15,12 @@ expor o segredo cru nos relatórios (console, JSON, SARIF ou baseline) — apena
 um valor ocultado. Um bug que faça um segredo vazar num relatório é tratado
 como **falha de segurança** desta ferramenta, não como falha de estilo.
 
+O **quanto** do valor ocultado aparece depende de para onde ele vai: console e
+JSON mostram 4 caracteres de cada ponta; o **baseline** (feito para ser
+commitado) e o **SARIF** (que sobe para o Code Scanning) mostram **2** — 4+4
+revelava 8 caracteres de qualquer segredo com 13+, o bastante para reconstruir
+uma senha humana com um dicionário.
+
 A *fingerprint* publicada em SARIF, JSON e baseline é derivada de
 `(regra, arquivo, valor ocultado)` — **não** do segredo cru. Um hash truncado do
 segredo pareceria seguro, mas para uma senha humana (`Brasil@2024`) um dicionário

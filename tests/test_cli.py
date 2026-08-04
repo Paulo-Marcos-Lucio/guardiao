@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -107,3 +109,30 @@ def test_max_file_size_recupera_arquivo_grande(tmp_path: Path) -> None:
     assert json.loads(padrao.stdout)["summary"]["skipped"]["tamanho"] == 1
     solto = runner.invoke(app, ["scan", str(tmp_path), "-f", "json"])
     assert json.loads(solto.stdout)["summary"]["total"] == 1
+
+
+def test_app_nao_mostra_locals_em_excecao() -> None:
+    """O invariante da ferramenta é "o segredo cru nunca sai" — e o traceback é uma
+    saída como qualquer outra. Em typer 0.12.5 `pretty_exceptions_show_locals` vem
+    LIGADO por padrão: numa exceção não tratada, o Rich imprime as variáveis locais do
+    frame, e `Finding.secret` (que existe justamente para poder mascarar a linha) vai
+    CRU para o stderr — do CI, do log, da tela do cliente.
+
+    A checagem do fonte não é preciosismo: no objeto pronto não dá para distinguir
+    "passamos False" de "a versão instalada hoje já vem False", e depender do padrão da
+    biblioteca é exatamente o que este item corrige.
+    """
+    from guardiao import cli
+
+    assert cli.app.pretty_exceptions_show_locals is False
+    assert "pretty_exceptions_show_locals=False" in inspect.getsource(cli)
+
+
+def test_piso_do_typer_exclui_versoes_que_mostram_locals() -> None:
+    """Cinto E suspensório: de nada adianta passar a flag se o piso de dependência
+    ainda resolve para uma versão cujo padrão é vazar os locais. `typer>=0.12` permitia
+    instalar a 0.12.5 — a que expõe o segredo no traceback."""
+    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    piso = re.search(r'"typer>=(\d+)\.(\d+)', pyproject)
+    assert piso is not None, "o piso do typer sumiu do pyproject"
+    assert (int(piso.group(1)), int(piso.group(2))) >= (0, 16)

@@ -42,7 +42,9 @@ def _one_notch_down(sev: Severity) -> Severity:
 
 #: Motivos pelos quais conteúdo deixa de ser analisado. Sempre reportados (mesmo
 #: zerados) — "não olhei" e "olhei e está limpo" precisam ser distinguíveis.
-MOTIVOS_DE_PULO: tuple[str, ...] = ("tamanho", "ruido", "binario", "linha_longa")
+#: ``diretorio`` conta ÁRVORES inteiras puladas (exclude_dirs/venv), não arquivos:
+#: é o motivo que mais esconde conteúdo e o último a ganhar contador.
+MOTIVOS_DE_PULO: tuple[str, ...] = ("diretorio", "tamanho", "ruido", "binario", "linha_longa")
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
 Unit = tuple[str, str, "str | None"]
@@ -54,6 +56,35 @@ _PEM_FECHA_RE = re.compile(r"^-{5}END [A-Z0-9 ]+-{5}\s*$")
 
 #: Linha inteira de base64 contíguo, fora de bloco delimitado (blob solto, objeto Git).
 _CORPO_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]{40,}={0,2}$")
+
+
+#: Caminho SINTÉTICO: a unidade não veio de um arquivo com nome (blob órfão do
+#: histórico, mensagem de commit/tag). Quem produz a unidade escreve o descritor
+#: entre ``<>`` — nome de arquivo real não tem essa forma em nenhum dos dois lados.
+_CAMINHO_SINTETICO_RE = re.compile(r"^<[^>]*>$")
+
+#: Linha no formato de arquivo de ambiente: `CHAVE_MAIÚSCULA=valor` sem aspas e sem
+#: espaço em volta do `=` — é isso que separa um `.env` de código-fonte (`x = f()`).
+_LINHA_DOTENV_RE = re.compile(r"^[ \t]*(?:export[ \t]+)?[A-Z_][A-Z0-9_]*=(?![\s\"'])")
+
+
+def _parece_dotenv(text: str) -> bool:
+    """O conteúdo tem forma de arquivo de ambiente?
+
+    Usado só quando o caminho real é irrecuperável (blob solto). Exige que a MAIORIA
+    (≥60%) das linhas úteis case o formato: um arquivo de código com uma linha
+    `EXPORT_X=1` perdida no meio não vira `.env`, e um `.env` de uma linha só — que
+    existe — continua sendo reconhecido.
+    """
+    linhas = [
+        linha
+        for linha in text.split("\n")[:400]  # o suficiente para decidir; não varre 100 MB
+        if linha.strip() and not linha.lstrip().startswith("#")
+    ]
+    if not linhas:
+        return False
+    casam = sum(1 for linha in linhas if _LINHA_DOTENV_RE.match(linha))
+    return casam * 5 >= len(linhas) * 3
 
 
 def _e_corpo_base64(linha: str) -> bool:
@@ -99,6 +130,10 @@ class ScanResult:
     #: Valores casados por uma regra e descartados como placeholder (auditabilidade
     #: da supressão: sem esse número, o descarte é silencioso).
     placeholders: int = 0
+    #: Limites de ALCANCE que a fonte reconhece e declara (ex.: um clone não recebe os
+    #: objetos inalcançáveis do repositório de origem). Não é erro e não muda o código
+    #: de saída: travar o CI do cliente por um limite conhecido seria pior que declará-lo.
+    avisos_de_cobertura: list[str] = field(default_factory=list)
 
     def counts(self) -> dict[Severity, int]:
         result: dict[Severity, int] = dict.fromkeys(Severity, 0)
@@ -138,7 +173,7 @@ class Scanner:
     ) -> Iterator[Finding]:
         """Produz os achados de um texto. ``contadores`` acumula pulos/descartes."""
         contadores = {} if contadores is None else contadores
-        rules = self._rules_for(path)
+        rules = self._rules_for(path, text)
         em_teste = self.config.demote_tests and self.config.is_test_path(path)
         dentro_de_pem = False
         for lineno, line in enumerate(text.split("\n"), start=1):
@@ -236,10 +271,22 @@ class Scanner:
                     recommendation=rule.recommendation,
                 )
 
-    def _rules_for(self, path: str) -> list[Rule]:
-        """Regras válidas para este arquivo (algumas só valem em `.env` e afins)."""
+    def _rules_for(self, path: str, text: str) -> list[Rule]:
+        """Regras válidas para esta unidade (algumas só valem em `.env` e afins).
+
+        Quando a unidade **não tem nome de arquivo** — blob órfão de `--amend`/rebase,
+        mensagem de commit —, decidir por `fnmatch` significa descartar a regra: era
+        assim que o `.env` amendado, o cenário-assinatura da fonte de histórico,
+        voltava "nenhum segredo encontrado". Aí a decisão passa a ser por CONTEÚDO.
+        Hoje a única família `only_files` é a do `.env`, então uma heurística basta;
+        outra família precisará da sua.
+        """
         if not any(rule.only_files for rule in self.rules):
             return self.rules
+        if _CAMINHO_SINTETICO_RE.match(path):
+            if _parece_dotenv(text):
+                return self.rules
+            return [r for r in self.rules if not r.only_files]
         nome = PurePath(path).name.lower()
         return [r for r in self.rules if not r.only_files or _nome_casa(nome, r.only_files)]
 
@@ -282,6 +329,9 @@ class Scanner:
 
     def scan_git_history(self, repo: Path | str, *, permitir_shallow: bool = False) -> ScanResult:
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
+        # `avisos` é preenchido por REFERÊNCIA, como `skipped`: a fonte é preguiçosa e
+        # só declara o que descobriu enquanto o pipeline a consome.
+        avisos: list[str] = []
         units = (
             (blob.path, blob.text, blob.sha)
             for blob in iter_history_blobs(
@@ -289,9 +339,11 @@ class Scanner:
                 max_bytes=self.config.max_file_size,
                 skipped=skipped,
                 permitir_shallow=permitir_shallow,
+                avisos=avisos,
             )
         )
         result = self.scan_units(units, skipped)
+        result.avisos_de_cobertura = avisos
         # O MESMO segredo persiste em dezenas de blobs (todo commit que tocou o arquivo
         # o recarrega): 283 linhas brutas eram ~64 vazamentos distintos. Colapsa por
         # fingerprint (regra+arquivo+valor ocultado) em UM achado, contando as recidivas.

@@ -8,6 +8,7 @@ from rich.console import Console
 
 from guardiao.core.engine import Scanner
 from guardiao.core.models import Severity
+from guardiao.core.redaction import KEEP_PUBLICADO, redact
 from guardiao.report import console as console_report
 from guardiao.report.json_report import SCHEMA, to_document, to_json
 from guardiao.report.sarif import to_sarif
@@ -73,6 +74,48 @@ def test_console_distingue_nao_olhei_de_esta_limpo(tmp_path: Path) -> None:
     assert "✓ Nenhum segredo encontrado." in limpo
 
 
+def test_console_e_json_declaram_diretorio_pulado(tmp_path: Path) -> None:
+    """Não olhei ≠ olhei e está limpo: um diretório inteiro pulado (vendor/,
+    dist/, venv) é o pulo que mais esconde, e sumia do relatório. O console tem de
+    trocar o tique verde pelo aviso, e o JSON tem de trazer o motivo `diretorio`
+    SEMPRE — mesmo zerado — para quem consome o laudo por máquina."""
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    (vendor / "config.py").write_text(f'AWS = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+
+    resultado = Scanner().scan_paths([tmp_path])
+    saida = _render(resultado)
+    assert "✓ Nenhum segredo encontrado." not in saida
+    assert "diretório" in saida
+
+    skipped = to_document(resultado)["summary"]["skipped"]  # type: ignore[index]
+    assert skipped["diretorio"] == 1
+
+    # e num diretório sem nenhuma pasta pulada o motivo continua declarado (zerado)
+    limpo = tmp_path / "limpo"
+    limpo.mkdir()
+    (limpo / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    zerado = to_document(Scanner().scan_paths([limpo]))["summary"]["skipped"]  # type: ignore[index]
+    assert zerado["diretorio"] == 0
+
+
+def test_aviso_de_cobertura_aparece_em_console_json_e_sarif() -> None:
+    """Um limite de alcance declarado pela fonte (ex.: clone que não trouxe os objetos
+    inalcançáveis) só serve se chegar a quem lê o laudo — nos três formatos."""
+    resultado = Scanner().scan_units([("a.py", "x = 1", None)])
+    resultado.avisos_de_cobertura.append("Repositório é um clone: alcance limitado.")
+
+    saida = _render(resultado)
+    assert "alcance limitado" in saida
+
+    documento = to_document(resultado)
+    assert documento["summary"]["coverage_warnings"] == resultado.avisos_de_cobertura  # type: ignore[index]
+
+    sarif = json.loads(to_sarif(resultado))
+    assert sarif["runs"][0]["properties"]["coverageWarnings"] == resultado.avisos_de_cobertura
+
+
 def test_console_nao_interpreta_markup_do_alvo(tmp_path: Path) -> None:
     """Markup do Rich vindo do alvo derrubava o relatório inteiro (MarkupError) e
     permitiria esconder um achado com `[black on black]`."""
@@ -99,6 +142,24 @@ def test_sarif_is_valid_and_safe(planted_dir: Path) -> None:
     for res in run["results"]:
         assert res["ruleId"] in declared
         assert res["locations"][0]["physicalLocation"]["region"]["startLine"] >= 1
+
+
+def test_sarif_nao_expoe_mais_de_2_chars_por_ponta(planted_dir: Path) -> None:
+    """O SARIF sobe para o GitHub Code Scanning — quem tem leitura no repositório lê
+    o `message.text`. Publicar 4+4 caracteres de cada segredo ali é publicar metade
+    de uma senha humana num painel com plateia."""
+    resultado = Scanner().scan_paths([planted_dir])
+    payload = to_sarif(resultado)
+
+    assert resultado.findings
+    for achado in resultado.findings:
+        segredo = achado.secret.strip()
+        assert segredo not in payload
+        # Nenhuma ponta mais larga que a publicável: se 3+3 aparecesse, 4+4 (o do
+        # console, que era o publicado) também apareceria.
+        assert redact(segredo, keep=3) not in payload, f"pontas largas de {achado.rule_id}"
+        assert redact(segredo, keep=KEEP_PUBLICADO) in payload
+    assert "AK…PD" in payload  # identificar a credencial continua possível
 
 
 def test_sarif_respeita_as_restricoes_do_schema_2_1_0(planted_dir: Path) -> None:

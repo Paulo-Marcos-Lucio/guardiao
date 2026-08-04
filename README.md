@@ -102,7 +102,7 @@ Honestidade primeiro — o que esta ferramenta **não** faz:
 - **CNPJ alfanumérico** (formato novo da Receita, `AA.AAA.AAA/AAAA-DD`) **não** é detectado — só o numérico.
 - **Segredo multilinha** (corpo de chave privada, JSON de service account) é detectado pelo cabeçalho, não pelo corpo: a varredura é linha a linha.
 - **Não reescreve histórico.** Achar é metade; `git filter-repo` e a rotação são trabalho separado.
-- **O que é pulado aparece no relatório** (`summary.skipped`): lockfile, binário, arquivo acima de `--max-file-size` e linha acima de `--max-line-length`. "Não olhei" e "olhei e está limpo" são saídas visualmente distintas.
+- **O que é pulado aparece no relatório** (`summary.skipped`): **diretório inteiro excluído** (`vendor/`, `dist/`, `node_modules/`, virtualenv), lockfile, binário, arquivo acima de `--max-file-size` e linha acima de `--max-line-length`. "Não olhei" e "olhei e está limpo" são saídas visualmente distintas.
 
 ---
 
@@ -160,7 +160,7 @@ Principais opções do `scan`:
 | --- | --- |
 | `-f, --format` | `console` (padrão), `json`, `sarif`. Repetível. |
 | `-o, --output` | Arquivo de saída (para um formato de arquivo). |
-| `--git-history` | Varre todos os blobs do histórico, não só a árvore atual. |
+| `--git-history` | Varre todos os blobs do histórico — inclusive objetos soltos (`--amend`/rebase) — **e as mensagens de commit e de tag anotada**, não só a árvore atual. |
 | `--permitir-shallow` | Aceita rodar `--git-history` em clone raso (histórico incompleto). |
 | `--baseline` / `--update-baseline` | Suprime achados conhecidos / (re)grava o baseline. |
 | `--fail-on` | `none`/`info`/`low`/`medium`/`high`/`critical` — código de saída 1 para CI. |
@@ -234,6 +234,16 @@ num clone raso `--git-history` só vê os commits baixados. O Guardião **aborta
 exit 2** nesse caso em vez de reportar sucesso (use `--permitir-shallow` se você
 realmente quiser varrer o histórico parcial).
 
+E mesmo com `fetch-depth: 0` **há um limite que nenhuma flag remove**: `git clone` e
+`git fetch` transferem apenas objetos **alcançáveis**. O blob que sobrou de um
+`commit --amend`, de um rebase, de um branch deletado ou de um stash existe só no
+repositório de origem e **não chega ao runner** — é o esconderijo mais comum de
+segredo. Rodando num clone, o Guardião **declara esse limite** no relatório
+(`summary.coverage_warnings` no JSON, `properties.coverageWarnings` no SARIF) em vez
+de entregar "0 achado" como se tivesse olhado tudo. Ele **não falha** por isso: um
+limite conhecido do protocolo do Git não é motivo para travar o seu CI. Para alcance
+total, rode a varredura no próprio repositório de origem.
+
 ---
 
 ## 🔓 Versão Pro (privada) — é SERVIÇO, não outro motor
@@ -295,6 +305,7 @@ src/guardiao/
 Princípios de projeto:
 
 - **O segredo cru nunca sai.** Ele existe no objeto `Finding` só para mascarar a linha de contexto; os renderizadores usam exclusivamente o valor ocultado. Há teste garantindo que console, JSON, SARIF e baseline **não** contêm o segredo.
+- **Artefato publicado oculta mais.** Console e JSON mostram 4 caracteres de cada ponta (é o que faz o dono reconhecer *qual* credencial é). O **baseline** — que você versiona — e o **SARIF** — que sobe para o Code Scanning e fica legível para quem tem acesso ao repositório — mostram só **2 por ponta**: com 4+4, uma senha humana de 16 caracteres sai com metade em claro, e o resto é dicionário.
 - **Fingerprint publicável.** A identidade de um achado é `sha256(regra ‖ arquivo ‖ valor ocultado)` — deliberadamente **sem** o segredo cru e **sem** a linha. Sem o segredo porque um hash truncado de senha humana é um compromisso quebrável em microssegundos, e essa fingerprint viaja no SARIF publicado no Code Scanning e no baseline que você versiona. Sem a linha para que mover o código não feche e reabra o alerta no GitHub.
 - **Cada regra é dado, não código**: adicionar um detector é acrescentar uma entrada declarativa (regex + severidade + filtros). O motor é quem percorre a linha.
 - **Um pipeline só**: `scan`, `pre-commit` e `--git-history` desembocam no mesmo `Scanner.scan_units` e usam a mesma `Config` — um arquivo que o CI considera limpo não pode bloquear o commit.

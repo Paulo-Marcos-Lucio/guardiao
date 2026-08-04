@@ -25,12 +25,12 @@ def iter_files(root: Path, config: Config, skipped: dict[str, int] | None = None
             yield root
         return
 
-    for path in _walk(root, raiz_real, config):
+    for path in _walk(root, raiz_real, config, contador):
         if _eligible(path, config, contador):
             yield path
 
 
-def _walk(root: Path, raiz_real: Path, config: Config) -> Iterator[Path]:
+def _walk(root: Path, raiz_real: Path, config: Config, skipped: dict[str, int]) -> Iterator[Path]:
     stack = [root]
     while stack:
         current = stack.pop()
@@ -43,6 +43,11 @@ def _walk(root: Path, raiz_real: Path, config: Config) -> Iterator[Path]:
                 continue
             if entry.is_dir():
                 if _skip_dir(entry, config):
+                    # Pulo de MAIOR alcance da ferramenta — e o único que não era
+                    # contado: um `ghp_` versionado em `vendor/` produzia
+                    # "✓ Nenhum segredo encontrado" com todos os contadores zerados,
+                    # enquanto o mesmo arquivo em stage bloqueava o commit.
+                    skipped["diretorio"] = skipped.get("diretorio", 0) + 1
                     continue
                 stack.append(entry)
             elif entry.is_file():

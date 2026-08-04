@@ -9,6 +9,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+#: Quanto de cada ponta sobrevive em artefato **publicado** — o baseline (que o README
+#: manda VERSIONAR no repo do cliente) e o SARIF (que sobe para o Code Scanning e é
+#: legível por quem tiver leitura no repositório). Com os 4+4 do padrão, todo segredo
+#: de 13+ caracteres saía com 8 em claro: numa senha humana de 16 (``Nordeste2019!Rj``)
+#: isso é metade dela, e um dicionário recupera o resto. O console fica em 4+4 de
+#: propósito: ele não é publicado — morre na estação de quem triou, e é ali que o dono
+#: precisa reconhecer *qual* credencial é, de relance.
+KEEP_PUBLICADO = 2
+
 
 def redact(secret: str, *, keep: int = 4) -> str:
     """Mascara um segredo preservando apenas as pontas."""
