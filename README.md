@@ -160,7 +160,7 @@ Principais opções do `scan`:
 | --- | --- |
 | `-f, --format` | `console` (padrão), `json`, `sarif`. Repetível. |
 | `-o, --output` | Arquivo de saída (para um formato de arquivo). |
-| `--git-history` | Varre todos os blobs do histórico, não só a árvore atual. |
+| `--git-history` | Varre todos os blobs do histórico — inclusive objetos soltos (`--amend`/rebase) — **e as mensagens de commit e de tag anotada**, não só a árvore atual. |
 | `--permitir-shallow` | Aceita rodar `--git-history` em clone raso (histórico incompleto). |
 | `--baseline` / `--update-baseline` | Suprime achados conhecidos / (re)grava o baseline. |
 | `--fail-on` | `none`/`info`/`low`/`medium`/`high`/`critical` — código de saída 1 para CI. |

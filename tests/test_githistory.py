@@ -132,6 +132,53 @@ def test_historico_deduplica_o_mesmo_segredo_por_fingerprint(tmp_path: Path) -> 
     assert aws[0].location.commit is not None and aws[0].commit_last is not None
 
 
+def test_segredo_em_mensagem_de_commit_e_encontrado(tmp_path: Path) -> None:
+    """Mensagem de commit é conteúdo versionado como qualquer outro — e é onde a
+    credencial aparece quando alguém cola o comando que usou ("subi com a chave X").
+    O streaming descartava tudo que não fosse blob, então esse texto nunca era lido."""
+    repo = _repo(tmp_path)
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", f"deploy feito com a chave {AWS_KEY_ID}")
+
+    achados = Scanner().scan_git_history(repo).findings
+
+    aws = [f for f in achados if f.rule_id == "aws-access-key-id"]
+    assert aws, "segredo na mensagem de commit não foi varrido"
+    assert aws[0].location.path.startswith("<mensagem do commit ")
+
+
+def test_segredo_em_tag_anotada_e_encontrado(tmp_path: Path) -> None:
+    """Tag anotada é um objeto próprio, com mensagem própria — release notes coladas
+    às pressas levam token junto."""
+    repo = _repo(tmp_path)
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "release")
+    _git(repo, "tag", "-a", "v1.0.0", "-m", f"publicado com {GH_TOKEN}")
+
+    achados = Scanner().scan_git_history(repo).findings
+
+    gh = [f for f in achados if f.rule_id == "github-token"]
+    assert gh, "segredo na mensagem da tag anotada não foi varrido"
+    assert gh[0].location.path.startswith("<mensagem da tag ")
+
+
+def test_cabecalho_do_commit_nao_vira_conteudo(tmp_path: Path) -> None:
+    """Só a MENSAGEM entra: `tree`, `parent`, autor e e-mail são metadado do objeto —
+    varrê-los encheria o laudo de ruído (e de PII de quem commitou)."""
+    repo = _repo(tmp_path)
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "commit limpo")
+
+    unidades = [b for b in iter_history_blobs(repo) if b.path.startswith("<mensagem")]
+
+    assert unidades
+    assert all("test@example.com" not in b.text for b in unidades)
+    assert all(not b.text.startswith("tree ") for b in unidades)
+
+
 def test_clone_raso_falha_fechado(tmp_path: Path) -> None:
     """Num clone raso o `--git-history` só enxerga os commits baixados. Reportar
     sucesso nisso é prometer uma varredura que não aconteceu."""
