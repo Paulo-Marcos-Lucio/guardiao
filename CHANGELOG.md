@@ -31,6 +31,34 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Corrigido
 
+- **Falso-negativo silencioso: diretório excluído sumia do relatório.** `vendor/`,
+  `dist/`, `node_modules/` e virtualenvs eram pulados sem entrar em `summary.skipped`:
+  um token real versionado em `vendor/` produzia `✓ Nenhum segredo encontrado` com
+  **todos os contadores zerados** e exit 0 — enquanto o mesmo arquivo em stage
+  bloqueava o commit pelo hook. O motivo `diretorio` passa a existir e é reportado
+  **sempre**, mesmo zerado, no console e no JSON.
+- **Vazamento no artefato publicado: 8 caracteres em claro.** O baseline (feito para
+  ser **commitado**) e o SARIF (que sobe para o Code Scanning) usavam a mesma
+  ocultação do console — 4 caracteres de cada ponta, ou seja 8 em claro de qualquer
+  segredo com 13+. Numa senha humana de 16 é metade dela. Esses dois destinos passam a
+  mostrar **2 por ponta**; console e JSON seguem em 4. A nota do baseline, que
+  afirmava que os valores "não permitem recuperar o segredo", foi reescrita para
+  descrever o fragmento que o arquivo de fato carrega.
+- **Falso-negativo: blob órfão perdia as regras por nome de arquivo.** Um `.env`
+  "removido" com `commit --amend` — o cenário-assinatura da varredura de histórico —
+  voltava "nenhum segredo encontrado": o blob solto recebe caminho sintético, e
+  `dotenv-assignment` (regra `only_files`) era descartada por não casar nome. Sem
+  caminho recuperável, a decisão passa a ser por **conteúdo**.
+- **`--git-history` num clone não declarava o que não alcançou.** `git clone`/`fetch`
+  transferem só objetos alcançáveis: blob de `--amend`, rebase, branch deletado e
+  stash ficam na origem (medido em auditoria: 7 achados no original → 2 no clone,
+  exit 0, sem aviso). O relatório passa a **declarar o limite** —
+  `summary.coverage_warnings` no JSON, `properties.coverageWarnings` no SARIF — sem
+  falhar: limite conhecido do protocolo do Git não é motivo para travar o CI.
+- **Segredo cru podia sair no traceback.** O piso `typer>=0.12` permitia a 0.12.5, cujo
+  `pretty_exceptions_show_locals` vem ligado por padrão e imprime as variáveis locais
+  do frame — incluindo o valor do segredo. Piso elevado para `typer>=0.16` **e**
+  parâmetro passado explicitamente na construção do app.
 - **Falso-negativo: chave de fornecedor engolida pelo filtro de placeholder.**
   `abcdefgh` e `1234567890` estavam em `PLACEHOLDER_SUBSTRINGS`, então qualquer valor
   que contivesse a sequência era descartado **em silêncio** — inclusive uma senha
@@ -118,6 +146,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Adicionado
 
+- **Mensagens de commit e de tag anotada entram na varredura de `--git-history`.**
+  Segredo colado em mensagem de commit é comum e nenhum `git rm` o alcança; o
+  streaming descartava tudo que não fosse blob. Só a mensagem é lida — cabeçalho do
+  objeto (autor, e-mail) fica de fora, para não encher o laudo de ruído e de PII.
+- `summary.coverage_warnings` (JSON) e `properties.coverageWarnings` (SARIF): limites
+  de **alcance** declarados pela fonte, distintos de `skipped` (o que foi pulado).
 - `--max-file-size` e `--max-line-length` na CLI: sem elas não havia caminho de
   recuperação para `dump.sql` e `bundle.js`, que é exatamente onde credencial de
   produção costuma parar.
