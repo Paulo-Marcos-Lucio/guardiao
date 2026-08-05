@@ -116,6 +116,47 @@ _BOMS: tuple[tuple[bytes, str], ...] = (
 )
 
 
+#: Assinaturas (magic bytes) de contêineres binários/documentos que COMEÇAM com bytes
+#: ASCII e por isso escapam da heurística de NUL. O caso de campo: ``requests-logo.ai``
+#: (Adobe Illustrator) abre com ``%PDF``/``%!PS`` em ASCII, não tem NUL nos primeiros
+#: 8 KiB, era lido como texto e o corpo comprimido rendia falso-positivo de entropia.
+#: A CLASSE é "arquivo binário mal-nomeado (extensão desconhecida) lido como texto";
+#: detectar pela ASSINATURA fecha a classe inteira, não só a extensão ``.ai``.
+#: ``MZ`` puro fica de FORA de propósito (2 bytes ambíguos que texto legítimo pode ter);
+#: só entram assinaturas inequívocas.
+_ASSINATURAS_BINARIAS: tuple[bytes, ...] = (
+    b"%PDF",  # PDF (e Illustrator moderno)
+    b"%!PS",  # PostScript / EPS / Illustrator legado
+    b"\x89PNG\r\n\x1a\n",  # PNG
+    b"GIF87a",
+    b"GIF89a",
+    b"\xff\xd8\xff",  # JPEG
+    b"PK\x03\x04",  # ZIP / docx / xlsx / jar / odt
+    b"PK\x05\x06",  # ZIP vazio
+    b"\x7fELF",  # ELF
+    b"Rar!\x1a\x07",  # RAR
+    b"\x1f\x8b",  # gzip
+    b"BM",  # BMP (2 bytes, mas seguido sempre de tamanho — raro em texto que comece "BM")
+    b"OggS",  # Ogg
+    b"fLaC",  # FLAC
+    b"\x00\x00\x01\x00",  # ICO (tem NUL: já caía, mas explícito)
+    b"II*\x00",  # TIFF little-endian
+    b"MM\x00*",  # TIFF big-endian
+    b"\xfd7zXZ\x00",  # XZ
+    b"7z\xbc\xaf\x27\x1c",  # 7-Zip
+    b"ustar",  # tar (em offset 257, mas o prefixo cobre o caso comum de header nomeado)
+    b"\xca\xfe\xba\xbe",  # class Java / Mach-O fat
+    b"RIFF",  # WAV / AVI / WebP
+    b"\x25\x50\x44\x46",  # %PDF em bytes (dup defensivo)
+)
+
+
+def _tem_assinatura_binaria(raw: bytes) -> bool:
+    """O arquivo abre com uma assinatura de contêiner binário conhecido?"""
+    head = raw[:16]
+    return any(head.startswith(sig) for sig in _ASSINATURAS_BINARIAS)
+
+
 def decode_text_bytes(raw: bytes) -> str | None:
     """Decodifica bytes de arquivo em texto, ou ``None`` se parecer binário.
 
@@ -123,8 +164,9 @@ def decode_text_bytes(raw: bytes) -> str | None:
     .NET gravam UTF-16 no Windows) é decodificado pelo codec que o BOM anuncia. Sem
     isso, os NUL de intercalação do UTF-16 (``t\\x00o\\x00k\\x00…``) faziam o arquivo
     parecer binário pela heurística de NUL — e o segredo passava batido em silêncio
-    (cegueira de contexto de encoding). Sem BOM, mantém a heurística: NUL nos
-    primeiros 8 KiB ⇒ binário (``None``); caso contrário decodifica como UTF-8,
+    (cegueira de contexto de encoding). Sem BOM: (1) uma **assinatura de contêiner
+    binário** no início ⇒ binário (fecha a classe do binário ASCII sem NUL, ex.: ``.ai``);
+    (2) NUL nos primeiros 8 KiB ⇒ binário; caso contrário decodifica como UTF-8,
     substituindo bytes inválidos (latin-1/quebrado ainda rende o texto ASCII).
     """
     for bom, codec in _BOMS:
@@ -133,6 +175,8 @@ def decode_text_bytes(raw: bytes) -> str | None:
                 return raw.decode(codec, errors="replace")
             except (LookupError, ValueError):  # pragma: no cover - defensivo
                 break
+    if _tem_assinatura_binaria(raw):
+        return None
     if b"\x00" in raw[:8192]:
         return None
     return raw.decode("utf-8", errors="replace")

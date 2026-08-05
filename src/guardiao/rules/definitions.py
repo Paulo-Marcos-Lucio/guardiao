@@ -381,6 +381,7 @@ def default_rules() -> list[Rule]:
             Severity.MEDIUM,
             r"\b(https?://[^:@\s/]*:[^@\s/]{3,}@[^\s'\"]+)",
             secret_group=1,
+            validator=_basic_auth_url_e_vazamento,
             cwe="CWE-522",
             owasp=_A07,
             recommendation="Usuário:senha embutidos na URL vazam em logs e histórico. " + _ROTATE,
@@ -636,6 +637,47 @@ _CONSOANTES = re.compile(r"[bcdfghjklmnpqrstvwxyz]+", re.IGNORECASE)
 #: hex de 32+ (`openssl rand -hex 16/32`, md5, sha256) — formato de segredo conhecido.
 _HEX_SECRET = re.compile(r"^[0-9a-fA-F]{32,}$")
 
+#: Fronteira de segmento de identificador: `_`, `-`, `.` ou transição camelCase.
+_SEP_IDENTIFICADOR = re.compile(r"[_\-.]+|(?<=[a-z0-9])(?=[A-Z])")
+_VOGAL = re.compile(r"[aeiouyAEIOUY]")
+#: Sequência de URL-encoding (`%5D`, `%F0`): sinal de dado de URL/fixture, não de segredo.
+_URL_ENCODED = re.compile(r"%[0-9A-Fa-f]{2}")
+
+
+def _parece_identificador_de_codigo(token: str) -> bool:
+    """Token com estrutura de identificador de código (snake_case/kebab/camelCase de
+    palavras legíveis) — NUNCA é um segredo aleatório.
+
+    Esta é a CAUSA-RAIZ da classe de falso-positivo em que `cert_encrypted_private_key_file`
+    virava achado: a heurística de impronunciabilidade (:func:`_max_consonant_run`) dispara
+    em palavras reais (``encrypted`` tem a corrida ``ncrypt`` = 6 consoantes), e a de entropia
+    subestima o token. O discriminante é a ESTRUTURA: um segredo de base64/hex não se decompõe
+    em sub-palavras pronunciáveis; um identificador, sim.
+
+    Critério (conservador, para não cegar segredo real): 2+ segmentos, quase todos só-letras,
+    com vogal e curtos (≤12), cobrindo ≥70% dos caracteres do token. Um blob aleatório com `_`/`-`
+    tem segmentos com dígitos (``xK7mP9``) que não contam como palavra → não é bloqueado.
+    """
+    segmentos = [s for s in _SEP_IDENTIFICADOR.split(token) if s]
+    if len(segmentos) < 2:
+        return False
+    palavras = [s for s in segmentos if s.isalpha() and 2 <= len(s) <= 12 and _VOGAL.search(s)]
+    if len(palavras) < 2 or len(palavras) < len(segmentos) - 1:
+        return False
+    cobertura = sum(len(p) for p in palavras)
+    return cobertura * 10 >= len(token) * 7
+
+
+def _predominantemente_url_encoded(value: str) -> bool:
+    """O valor é majoritariamente sequências ``%XX`` (dado de URL/fixture de parser)?
+
+    Fecha a classe do ``"password": "%F0%9F%92%A9"`` da suíte de conformidade WHATWG:
+    um emoji URL-encoded não é uma credencial. Exige que as sequências ``%XX`` cubram a
+    maior parte do valor — uma senha real com um único ``%`` não é afetada.
+    """
+    encoded = "".join(m.group() for m in _URL_ENCODED.finditer(value))
+    return len(encoded) * 10 >= len(value) * 6
+
 
 def _max_consonant_run(token: str) -> int:
     """Maior corrida de consoantes (só LETRAS; vogais, dígitos e símbolos quebram)."""
@@ -664,9 +706,47 @@ def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> 
         return False
     if is_probable_hash_or_id(token):
         return False
+    if _parece_identificador_de_codigo(token):
+        return False  # identificador de código (`cert_encrypted_private_key_file`) não é segredo
     if is_high_entropy(token):
         return True
     return _max_consonant_run(token) >= 6
+
+
+#: Partes de uma URL Basic-Auth, tolerante a host vazio/absurdo (o que os fixtures de
+#: parser de URL produzem: `http://user:pass@/`, `http://&a:foo@d:2/`).
+_BASIC_AUTH_PARTS = re.compile(
+    r"^https?://(?P<user>[^:@/\s]*):(?P<pw>[^@/\s]+)@(?P<host>[^/\s?#'\"]*)",
+    re.IGNORECASE,
+)
+
+
+def _basic_auth_url_e_vazamento(url: str) -> bool:
+    """A URL Basic-Auth carrega credencial REAL, ou é fixture de parser de URL?
+
+    CAUSA-RAIZ da classe: a suíte de conformidade WHATWG (`tests/models/whatwg.json`) usa
+    URLs sintaticamente válidas mas absurdas — host vazio (`@/`), host de 1 caractere
+    (`@d:2/`), senha de teste URL-encoded. A regex de `basic-auth-url` casava todas. O
+    discriminante de classe é o HOST: um vazamento real tem host com forma de domínio/
+    hostname (≥4 caracteres); um fixture de parser tem host degenerado. Sob host degenerado,
+    só é vazamento se a senha for de ALTA ENTROPIA (uma senha real embutida contra um host
+    curto interno continua pega); caso contrário, é dado de teste.
+    """
+    m = _BASIC_AUTH_PARTS.match(url)
+    if m is None:  # não bate o parser fino: mantém o veredito da regex principal
+        return True
+    if _is_example_url_cred(url):
+        return False  # já coberto (example.com, user:pass, template) — não duplica
+    pw = m.group("pw")
+    hostname = m.group("host").split(":")[0]
+    if len(hostname) < 4:
+        # host degenerado (vazio, 1-3 chars: fixture de parser): só vaza se a senha for
+        # de alta entropia (uma senha real contra host interno curto continua pega).
+        return is_high_entropy(pw, min_length=12)
+    # host com forma de domínio: ainda exige que a SENHA pareça real. `a%20secret`
+    # (a-space-secret, URL-encoded) contra `müller.de` é exemplo de parser de URL, não
+    # vazamento. `_pw_looks_real` reprova senha URL-encoded/placeholder e aprova segredo real.
+    return _pw_looks_real(pw)
 
 
 def _pw_looks_real(pw: str) -> bool:
@@ -720,6 +800,8 @@ def looks_like_secret_value(value: str) -> bool:
     """
     if any(c.isspace() for c in value):
         return False
+    if _predominantemente_url_encoded(value):
+        return False  # `%F0%9F%92%A9` (emoji URL-encoded de fixture) não é credencial
     if is_high_entropy(value) or _HEX_SECRET.match(value):
         return True
     # Marcador de TESTE/placeholder no VALOR (palavra que um segredo real não carrega):
