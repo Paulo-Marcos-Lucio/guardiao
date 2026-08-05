@@ -308,17 +308,25 @@ detecção; é **trabalho humano conduzido por mim** em cima desta engine:
 O Guardião resolve um problema simples de enunciar e caro de ignorar: **segredos commitados por engano** — na árvore atual e, sobretudo, escondidos no histórico do Git. O dado entra por duas fontes (arquivos do disco e blobs de **todo** o histórico), atravessa o motor **linha a linha**, onde cada regra combina **regex de provedor + entropia + validador BR** e uma bateria de filtros derruba placeholder, hash e allowlist. O que sobrevive vira um `Finding` com o **segredo já ocultado**, classificado em **OWASP 2025 + CWE**. Sai em três formatos — **console**, **JSON** (`suite-appsec/1`) e **SARIF 2.1.0** para o Code Scanning —, com um **baseline** que faz o CI falhar só no que é novo.
 
 ```mermaid
-flowchart LR
-    SRC["fontes/ — arquivos + histórico Git"] --> ENG["core/ — motor (Scanner, linha a linha)"]
-    ENG --> RUL["rules/ — regex + entropia + validadores BR"]
-    RUL --> FLT["filtros — placeholder · Miller-Madow · contexto de hash · allowlist"]
-    FLT --> FND["Finding — segredo ocultado"]
-    FND --> TAX["taxonomia — OWASP 2025 + CWE"]
-    TAX --> BAS["baseline — barra só o que é novo"]
-    BAS --> REP["report/ — renderização"]
-    REP --> C1["console (rich)"]
-    REP --> C2["json · suite-appsec/1"]
-    REP --> C3["sarif 2.1.0"]
+flowchart TD
+    A["<b>cli.py</b><br/>Typer · scan / pre-commit"] --> SRC["<b>sources/</b><br/>arquivos + histórico Git"]
+    SRC --> ENG["<b>core/engine.py</b><br/>Scanner · linha a linha"]
+    ENG --> RUL["<b>rules/</b><br/>regex + entropia + validador BR"]
+    RUL --> FLT["<b>filtros</b><br/>placeholder · hash · allowlist"]
+    FLT --> RED["<b>core/redaction.py</b><br/>oculta o segredo"]
+    RED --> FND["<b>core/models.py</b><br/>Finding imutável"]
+    FND --> TAX["<b>rules/definitions.py</b><br/>OWASP 2025 + CWE"]
+    TAX --> BAS["<b>core/baseline.py</b><br/>barra só o que é novo"]
+    BAS --> REP["<b>report/</b><br/>renderização"]
+    REP --> OUT
+    subgraph OUT [" Formatos de saída "]
+        direction LR
+        CON["console"] ~~~ JS["json · suite-appsec/1"] ~~~ SA["SARIF 2.1.0"]
+    end
+    classDef nucleo fill:#0e2a24,stroke:#3fb79e,stroke-width:2px,color:#e7ede9;
+    classDef saida fill:#241d0f,stroke:#d6a94e,color:#f5ecd9;
+    class A,SRC,ENG,RUL,FLT,RED,FND,TAX,BAS,REP nucleo;
+    class CON,JS,SA saida;
 ```
 
 A árvore de módulos:
