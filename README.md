@@ -108,16 +108,46 @@ Honestidade primeiro — o que esta ferramenta **não** faz:
 
 ## 🚀 Instalação
 
-Requer **Python 3.10+**.
+Requer **Python 3.10+**. Verifique com `python --version`.
+
+### ⚡ Quickstart — do zero ao primeiro achado
 
 ```bash
-# direto do repositório (pipx isola o ambiente)
-pipx install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git"
-
-# ou, dentro de um venv:
+# 1. instale a ferramenta (do repositório; veja o aviso de nome no PyPI abaixo)
 pip install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git"
 
-# desenvolvimento
+# 2. confirme que instalou
+guardiao --version
+
+# 3. rode contra o SEU projeto — árvore atual + TODO o histórico Git
+guardiao scan . --git-history
+```
+
+O comando `guardiao` sai com **código 1** se encontrar algo de severidade ≥ `medium`
+(o padrão) — é o que faz o CI falhar. Nada acima do limiar: código `0`.
+
+> **Quer vê-lo pegar algo antes de apontar para o seu código?** Clone o repositório e
+> rode contra o corpus de exemplo — 13 segredos plantados em formato de produção
+> (chave privada, AWS, Stripe, GitHub, Slack, `.env`…), detecção garantida:
+>
+> ```bash
+> git clone https://github.com/Paulo-Marcos-Lucio/guardiao.git
+> cd guardiao
+> python bench/gerar.py   # materializa os fixtures que não são versionados em claro
+> guardiao scan bench     # ou: pip install -e ".[dev]" antes, se quiser rodar a suíte
+> ```
+
+### Formas de instalar
+
+```bash
+# isolado do resto do sistema (recomendado para uso como CLI) — pipx cuida do venv
+pipx install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git"
+
+# ou dentro de um venv que você mesmo criou
+python -m venv .venv && . .venv/Scripts/activate   # Linux/macOS: source .venv/bin/activate
+pip install "git+https://github.com/Paulo-Marcos-Lucio/guardiao.git"
+
+# desenvolvimento (testes, lint, tipos)
 git clone https://github.com/Paulo-Marcos-Lucio/guardiao.git
 cd guardiao && pip install -e ".[dev]"
 ```
@@ -314,7 +344,7 @@ Princípios de projeto:
 
 ## 🔬 Qualidade de engenharia & método
 
-**Portões (medidos neste repo, não copiados):** 141 testes (1 skip) · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (22 arquivos) · `ruff` lint + format limpo (39 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
+**Portões (medidos neste repo em 2026-08-04, não copiados):** 180 testes (1 skip) · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (22 arquivos) · `ruff` lint + format limpo (42 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
 
 **Teste que morde a mão que o desfaz.** A calibração anti-falso-positivo vive sob guarda: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) fica **vermelho** se um filtro de precisão voltar a engolir um segredo real — reafirma que AWS, `ghp_`, entropia e chave privada continuam disparando. E `test_toda_regra_do_catalogo_tem_caso_positivo` reprova o CI se uma regra nova nascer sem caso positivo: "regra sem teste" e "regra que nunca casa nada" passam a ser indistinguíveis — e barradas. Dogfooding: `test_source_tree_is_clean` varre o próprio `src/`.
 
