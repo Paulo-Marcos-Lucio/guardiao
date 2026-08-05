@@ -14,7 +14,7 @@
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://img.shields.io/badge/mypy-strict-2A6DB2.svg)](https://mypy-lang.org/)
 [![OWASP](https://img.shields.io/badge/OWASP_Top_10-2025-000000.svg)](https://owasp.org/Top10/)
-[![Tests](https://img.shields.io/badge/tests-183%20passing-brightgreen.svg)](#-qualidade-de-engenharia--método)
+[![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen.svg)](#-qualidade-de-engenharia--método)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-green.svg)](#-qualidade-de-engenharia--método)
 
 </div>
@@ -79,6 +79,11 @@ Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (co
 > o intervalo é largo, e é por isso que ele está escrito aqui em vez de um número redondo.
 > O único caso que escapa é um blob de alta entropia **sem contexto nenhum** — escolha
 > deliberada, porque perseguir entropia solta é a maior fonte de ruído em código real.
+>
+> **Comparação honesta contra os incumbentes** (gitleaks, trufflehog): [`BENCHMARK.md`](./BENCHMARK.md)
+> — reprodutível, versões e commits fixados, e diz **onde perdemos**. A recalibração de 2026-08-05
+> derrubou o falso-positivo no `encode/httpx` de 25 para 4 (empatando com o gitleaks nas chaves reais
+> do `psf/requests`), com o recall do corpus preservado.
 >
 > A calibração que produz esses números **está neste repositório**; não há motor secreto.
 > Exemplo concreto do que ela corrigiu: a chave `sk_live_…` que por acaso contém a sequência
