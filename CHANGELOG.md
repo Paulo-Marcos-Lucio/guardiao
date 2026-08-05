@@ -6,6 +6,36 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ## [Não lançado]
 
+### Corrigido — calibração anti-falso-positivo (medição de campo 2026-08-05)
+
+Bateria contra repositórios reais fixados por commit (`encode/httpx@b5addb6`, `psf/requests`,
+`pallets/flask`) expôs **regressão de falso-positivo** — 25 achados no `httpx`, todos falsos, contra
+0 do gitleaks no mesmo alvo. A adjudicação manual revelou que **não eram 25 defeitos, mas 3 CLASSES**;
+cada uma foi fechada com um invariante travado por teste property-based (Hypothesis), não por remendo:
+
+- **Identificador de código tratado como segredo.** `cert_encrypted_private_key_file` virava achado de
+  entropia porque a palavra `encrypted` tem uma corrida de 6 consoantes (`ncrypt`). `looks_like_secret_token`
+  agora rejeita tokens que se decompõem em sub-palavras legíveis (snake_case/kebab/camelCase). Invariante:
+  *identificador de código nunca é token de segredo* (`test_identificador_de_codigo_nunca_e_segredo`).
+- **Binário lido como texto.** `requests-logo.ai` (Adobe Illustrator, cabeçalho PostScript ASCII, sem NUL
+  nos primeiros 8 KiB) era lido como texto e o corpo rendia entropia. `decode_text_bytes` passa a reconhecer
+  **assinaturas de contêiner binário** (PDF, PostScript, PNG, ZIP, ELF, gzip…) além da heurística de NUL.
+  Invariante: *arquivo com assinatura binária nunca é lido como texto* (`test_assinatura_binaria_...`).
+- **Fixture de parser de URL / valor URL-encoded tratado como credencial.** A suíte de conformidade WHATWG
+  (`http://user:pass@/`, `http://&a:foo@d:2/`) e `"password": "%F0%9F%92%A9"` viravam achados. `basic-auth-url`
+  ganhou validador que exige host de forma de domínio **e** senha de aparência real; `looks_like_secret_value`
+  ignora valores predominantemente URL-encoded; e o motor deixa de tratar como *path* uma `/` interna a um
+  base64 entre aspas (`opaque="FQhe/qaU…"`) — distinguindo-a do caminho real `/_internal/<seg>/…` (o F-007).
+
+Efeito medido: **httpx 25 → 4** (os 4 restantes são heurísticas corretamente rebaixadas a `low` em arquivos de
+teste), **as 4 chaves TLS privadas reais do `psf/requests` continuam detectadas**, e o **recall do corpus
+`bench/` permanece 13/14 (0 FP)**. Nenhum falso-negativo introduzido.
+
+### Removido
+
+- Arquivo-lixo `6.100` (0 bytes) versionado por engano na raiz — resíduo de um `pip install "hypothesis>=6.100"`
+  sem aspas no PowerShell (o `>` criou o arquivo). Removido do controle de versão.
+
 ### ⚠️ Mudanças que quebram compatibilidade
 
 - **Contrato JSON (`suite-appsec/1`).** O relatório JSON passa a declarar

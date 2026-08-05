@@ -57,6 +57,28 @@ _PEM_FECHA_RE = re.compile(r"^-{5}END [A-Z0-9 ]+-{5}\s*$")
 #: Linha inteira de base64 contíguo, fora de bloco delimitado (blob solto, objeto Git).
 _CORPO_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]{40,}={0,2}$")
 
+#: Alfabeto base64/base64url (sem o `/`, tratado à parte como possível delimitador).
+_B64URL_SEM_BARRA = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+=_-")
+
+
+def _barra_interna_base64(raw_line: str, start: int) -> bool:
+    """A `/` em ``raw_line[start-1]`` é interna a um base64 entre aspas, não um path?
+
+    Varre à esquerda sobre o segmento base64url anterior à `/`. Se a fronteira desse
+    segmento for uma **aspa** (`"`/`'`), o `/` está dentro de um valor citado
+    (``opaque="FQhe/qaU…"``) — não é delimitador de caminho. Se for `/`, espaço ou o
+    início da linha, é um path de verdade (``/_internal/<seg>/…``, o cenário do F-007),
+    e a checagem devolve ``False`` para não cegar o achado legítimo.
+    """
+    i = start - 2
+    vistos = 0
+    while i >= 0 and raw_line[i] in _B64URL_SEM_BARRA:
+        i -= 1
+        vistos += 1
+    if vistos == 0 or i < 0:
+        return False  # `/` logo após não-base64, ou segmento cola no início: path limpo
+    return raw_line[i] in "\"'"
+
 
 #: Caminho SINTÉTICO: a unidade não veio de um arquivo com nome (blob órfão do
 #: histórico, mensagem de commit/tag). Quem produz a unidade escreve o descritor
@@ -231,6 +253,16 @@ class Scanner:
                             continue  # UUID / SHA-1 de commit / pin não são segredos
                         if start > 0 and raw_line[start - 1] == "@":
                             continue  # 'action@sha' / 'image@digest' são pins, não segredos
+                        if (
+                            start >= 2
+                            and raw_line[start - 1] == "/"
+                            and _barra_interna_base64(raw_line, start)
+                        ):
+                            # `/` DENTRO de um base64 entre aspas (`opaque="FQhe/qaU…"`) não é
+                            # delimitador de path — o token inteiro é um valor, não uma URL.
+                            # Distingue-se do path real (`/_internal/<seg>/intel`, o F-007) pela
+                            # fronteira à esquerda do segmento anterior: aspas ⇒ valor; `/` ⇒ path.
+                            continue
                         if contexto_de_hash is None:
                             contexto_de_hash = _HASH_CONTEXT_RE.search(raw_line) is not None
                         if contexto_de_hash:
