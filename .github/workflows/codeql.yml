@@ -1,0 +1,45 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Análise semanal (segunda, 06:13 UTC): pega CVE nova em dependência de
+    # código mesmo sem commit. Horário quebrado evita o pico do :00.
+    - cron: "13 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Análise CodeQL (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # publica os alertas no Code Scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Inicializa CodeQL
+        uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+        with:
+          languages: ${{ matrix.language }}
+          # Python é interpretado: CodeQL não precisa de build.
+          queries: security-and-quality
+      - name: Analisa
+        uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+        with:
+          category: "/language:${{ matrix.language }}"

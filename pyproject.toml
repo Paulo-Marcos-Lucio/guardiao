@@ -20,19 +20,23 @@ classifiers = [
   "Topic :: Security",
 ]
 dependencies = [
-  # Piso em 0.16, não 0.12: até a 0.12.5, `pretty_exceptions_show_locals` vinha ligado
-  # por padrão e o VALOR de um segredo aparecia cru no traceback (locais do frame).
-  # O `cli.py` também passa o parâmetro explicitamente — cinto e suspensório.
+  # Piso mínimo em 0.16 por SEGURANÇA, não capricho: até a 0.12.5,
+  # `pretty_exceptions_show_locals` vinha ligado por padrão e o VALOR de um segredo
+  # aparecia cru no traceback (locais do frame). O `cli.py` também passa o parâmetro
+  # explicitamente — cinto e suspensório. Testado com a 0.27 desta árvore.
   "typer>=0.16",
   "rich>=13.7",
 ]
 
 [project.optional-dependencies]
+# Pisos elevados para as versões efetivamente instaladas e testadas neste repo
+# (portões verdes em 2026-08-04): assim os PRs do Dependabot que só sobem o piso
+# ficam redundantes e o CI reproduz o ambiente medido.
 dev = [
-  "pytest>=8.0",
-  "pytest-cov>=5.0",
-  "ruff>=0.5",
-  "mypy>=1.10",
+  "pytest>=9.1",
+  "pytest-cov>=7.1",
+  "ruff>=0.16",
+  "mypy>=2.3",
 ]
 
 [project.urls]

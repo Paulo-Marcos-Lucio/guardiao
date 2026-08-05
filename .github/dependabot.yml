@@ -1,15 +1,19 @@
 version: 2
 # Fixar action por SHA sem mecanismo de atualização é congelar a versão — inclusive
-# a vulnerável. O agrupamento evita enxurrada: 1 PR por mês por ecossistema.
+# a vulnerável. Cadência semanal encurta a janela até o SHA seguro; o agrupamento
+# ("*") condensa tudo em 1 PR por ecossistema para não virar enxurrada.
 updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: monthly
+      interval: weekly
     groups:
       actions:
         patterns: ["*"]
   - package-ecosystem: pip
     directory: "/"
     schedule:
-      interval: monthly
+      interval: weekly
+    groups:
+      pip:
+        patterns: ["*"]

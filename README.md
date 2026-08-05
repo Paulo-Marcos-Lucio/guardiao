@@ -355,7 +355,7 @@ Princípios de projeto:
 - **Contrato de saída estável**: JSON `suite-appsec/1` e **SARIF 2.1.0** (schema oficial do Code Scanning); um teste garante que o segredo cru nunca chega a renderizador algum.
 - **Imutabilidade e tipos estritos**: `Finding` e `Location` são `@dataclass(frozen=True)`; todo o `src/` passa em `mypy --strict`.
 
-**Cadeia de suprimentos do próprio repo:** actions do CI **fixadas por SHA** (`checkout`, `setup-python`, `upload-sarif`) + **Dependabot** (github-actions e pip, mensal, agrupado); `permissions: contents: read` como padrão. Fixar por SHA sem Dependabot seria congelar também a versão vulnerável — os dois andam juntos.
+**Cadeia de suprimentos do próprio repo:** toda action do CI **fixada por SHA de 40 hex** (nunca tag móvel) + **Dependabot** (github-actions e pip, **semanal**, agrupado) para que o SHA fixado não congele também a versão vulnerável; **CodeQL** (análise estática do GitHub, semanal e em cada PR) e **`dependency-review`** barrando dependência nova com CVE conhecida nos PRs; `permissions` mínimo e explícito por job, `persist-credentials: false`, `concurrency` com cancelamento e `timeout-minutes` em todo job.
 
 **PT-BR é decisão de projeto**, não descuido: identificadores e enums em inglês (são chaves de máquina); texto para humano — mensagens, docstrings e nomes de teste (`test_uri_de_redis_sem_usuario_e_detectada`) — em pt-BR, consistente nas quatro ferramentas da suíte.
 
