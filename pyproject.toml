@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "guardiao"
-version = "0.1.0"
+version = "0.4.0"
 description = "Scanner de segredos vazados em código-fonte e histórico Git — regex + entropia, baseline, SARIF e hook de pre-commit."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,6 +37,10 @@ dev = [
   "pytest-cov>=7.1",
   "ruff>=0.16",
   "mypy>=2.3",
+  # Testes property-based: geram milhares de entradas e afirmam INVARIANTES de classe,
+  # não só os exemplos que alguém pensou. É a rede contra "defeito de classe" — foi um
+  # corpo base64 de PEM (821 FP num cacert.pem) que nenhum fixture cobria.
+  "hypothesis>=6.100",
 ]
 
 [project.urls]

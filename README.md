@@ -14,7 +14,7 @@
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://img.shields.io/badge/mypy-strict-2A6DB2.svg)](https://mypy-lang.org/)
 [![OWASP](https://img.shields.io/badge/OWASP_Top_10-2025-000000.svg)](https://owasp.org/Top10/)
-[![Tests](https://img.shields.io/badge/tests-180%20passing-brightgreen.svg)](#-qualidade-de-engenharia--método)
+[![Tests](https://img.shields.io/badge/tests-183%20passing-brightgreen.svg)](#-qualidade-de-engenharia--método)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-green.svg)](#-qualidade-de-engenharia--método)
 
 </div>
@@ -129,8 +129,8 @@ O comando `guardiao` sai com **código 1** se encontrar algo de severidade ≥ `
 (o padrão) — é o que faz o CI falhar. Nada acima do limiar: código `0`.
 
 > **Quer vê-lo pegar algo antes de apontar para o seu código?** Clone o repositório e
-> rode contra o corpus de exemplo — 13 segredos plantados em formato de produção
-> (chave privada, AWS, Stripe, GitHub, Slack, `.env`…), detecção garantida:
+> rode contra o corpus de exemplo — 14 segredos plantados em formato de produção
+> (chave privada, AWS, Stripe, GitHub, Slack, `.env`…), 13 com detecção garantida:
 >
 > ```bash
 > git clone https://github.com/Paulo-Marcos-Lucio/guardiao.git
@@ -354,7 +354,7 @@ Princípios de projeto:
 
 ## 🔬 Qualidade de engenharia & método
 
-**Portões (medidos neste repo em 2026-08-04, não copiados):** 180 testes (1 skip) · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (22 arquivos) · `ruff` lint + format limpo (42 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
+**Portões (medidos neste repo em 2026-08-04, não copiados):** 183 testes (1 skip), incluindo *property-based* (Hypothesis) que afirmam invariantes de classe · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (22 arquivos) · `ruff` lint + format limpo (42 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
 
 **Teste que morde a mão que o desfaz.** A calibração anti-falso-positivo vive sob guarda: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) fica **vermelho** se um filtro de precisão voltar a engolir um segredo real — reafirma que AWS, `ghp_`, entropia e chave privada continuam disparando. E `test_toda_regra_do_catalogo_tem_caso_positivo` reprova o CI se uma regra nova nascer sem caso positivo: "regra sem teste" e "regra que nunca casa nada" passam a ser indistinguíveis — e barradas. Dogfooding: `test_source_tree_is_clean` varre o próprio `src/`.
 
