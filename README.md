@@ -14,6 +14,8 @@
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://img.shields.io/badge/mypy-strict-2A6DB2.svg)](https://mypy-lang.org/)
 [![OWASP](https://img.shields.io/badge/OWASP_Top_10-2025-000000.svg)](https://owasp.org/Top10/)
+[![Tests](https://img.shields.io/badge/tests-180%20passing-brightgreen.svg)](#-qualidade-de-engenharia--método)
+[![Coverage](https://img.shields.io/badge/coverage-95%25-green.svg)](#-qualidade-de-engenharia--método)
 
 </div>
 
