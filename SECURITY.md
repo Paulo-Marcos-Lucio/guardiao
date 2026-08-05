@@ -4,7 +4,7 @@
 
 Encontrou uma vulnerabilidade no Guardião? Reporte **de forma privada**:
 
-- E-mail: **pmlsp23@gmail.com** (assunto começando com `[security]`)
+- E-mail: **contatopml26@gmail.com** (assunto começando com `[security]`)
 
 Por favor, dê um prazo razoável para correção antes de divulgar publicamente.
 
