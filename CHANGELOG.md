@@ -4,7 +4,7 @@ Todos os lançamentos notáveis deste projeto são documentados aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.5.0] — 2026-08-05
 
 ### Corrigido — calibração anti-falso-positivo (medição de campo 2026-08-05)
 
