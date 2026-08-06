@@ -1,4 +1,4 @@
-<p align="right"><a href="README.en.md">🇺🇸 Read in English</a></p>
+<p align="center"><a href="README.en.md"><img src="https://img.shields.io/badge/🇺🇸-READ_IN_ENGLISH-B22234?style=for-the-badge&labelColor=3C3B6E" alt="Read this document in English"/></a></p>
 
 <a href="https://paulo-marcos-lucio.github.io"><img src="https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/banner-abismo-v2.svg" alt="Guardião — o escudo que guarda a fronteira do seu código: scanner de segredos no código e no histórico Git" width="100%"/></a>
 
