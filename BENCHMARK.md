@@ -1,3 +1,5 @@
+<p align="center"><a href="BENCHMARK.en.md"><img src="https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/btn-lang-en.svg" alt="Read this document in English" width="300"/></a></p>
+
 # Benchmark honesto — suíte AppSec vs. incumbentes (recalibrado 2026-08-05)
 
 Comparação real, reprodutível, contra as ferramentas gratuitas que o cliente já conhece.

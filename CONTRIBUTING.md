@@ -1,3 +1,5 @@
+<p align="center"><a href="CONTRIBUTING.en.md"><img src="https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/btn-lang-en.svg" alt="Read this document in English" width="300"/></a></p>
+
 # Contribuindo
 
 Contribuições são bem-vindas — especialmente **novas regras de detecção**.
