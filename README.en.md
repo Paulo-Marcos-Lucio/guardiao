@@ -13,13 +13,13 @@
 *API keys, tokens, passwords, and private keys committed by mistake are among the most common and cheapest causes of leaks. Guardião scans the current tree **and the entire history**, redacts the secret in the report, understands baselines so CI only fails on what's new, and exports **SARIF** for GitHub Code Scanning.*
 
 [![CI](https://github.com/Paulo-Marcos-Lucio/guardiao/actions/workflows/ci.yml/badge.svg)](https://github.com/Paulo-Marcos-Lucio/guardiao/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
-[![Checked with mypy](https://img.shields.io/badge/mypy-strict-2A6DB2.svg)](https://mypy-lang.org/)
-[![OWASP](https://img.shields.io/badge/OWASP_Top_10-2025-000000.svg)](https://owasp.org/Top10/)
-[![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen.svg)](#-engineering-quality--method)
-[![Coverage](https://img.shields.io/badge/coverage-95%25-green.svg)](#-engineering-quality--method)
+[![Python 3.10+](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-python.svg)](https://www.python.org/)
+[![MIT License](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-license.svg)](LICENSE)
+[![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
+[![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
+[![186 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-engineering-quality--method)
+[![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-engineering-quality--method)
 
 </div>
 

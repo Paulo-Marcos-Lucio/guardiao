@@ -11,13 +11,13 @@
 *Chaves de API, tokens, senhas e chaves privadas commitados por engano são uma das causas mais comuns e mais baratas de vazamento. O Guardião varre a árvore atual **e todo o histórico**, oculta o segredo no relatório, entende baseline para o CI só falhar no que é novo, e exporta **SARIF** para o GitHub Code Scanning.*
 
 [![CI](https://github.com/Paulo-Marcos-Lucio/guardiao/actions/workflows/ci.yml/badge.svg)](https://github.com/Paulo-Marcos-Lucio/guardiao/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
-[![Checked with mypy](https://img.shields.io/badge/mypy-strict-2A6DB2.svg)](https://mypy-lang.org/)
-[![OWASP](https://img.shields.io/badge/OWASP_Top_10-2025-000000.svg)](https://owasp.org/Top10/)
-[![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen.svg)](#-qualidade-de-engenharia--método)
-[![Coverage](https://img.shields.io/badge/coverage-95%25-green.svg)](#-qualidade-de-engenharia--método)
+[![Python 3.10+](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-python.svg)](https://www.python.org/)
+[![MIT License](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-license.svg)](LICENSE)
+[![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
+[![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
+[![186 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
+[![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-qualidade-de-engenharia--método)
 
 </div>
 
