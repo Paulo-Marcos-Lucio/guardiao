@@ -66,6 +66,7 @@ O Guardião foi feito para os dois momentos:
 | `dotenv-assignment` | Valor **sem aspas** atribuído a chave sensível em `.env`/`.envrc`/`*.env` | 🟠 Alta | A02 · CWE-798 |
 | `generic-assignment` | Valor atribuído a chave sensível (`DB_PASSWORD`, `JWT_SECRET`, `apiKey`…) | 🟡 Média | A02 · CWE-798 |
 | `high-entropy-string` | Cadeia aleatória de 24+ chars perto de contexto de segredo | 🟡 Média | A02 · CWE-798 |
+| `secret-in-path` | Cadeia de alta entropia embutida num caminho/URL (vaza em logs, referrer, histórico do navegador) | 🟡 Média | A02 · CWE-798 |
 | `cpf` / `cnpj` | Dado pessoal em texto claro, **com dígito verificador conferido** (**LGPD**) | 🔵 Baixa/Info | A04 · CWE-359 |
 
 Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (começando por *rotacionar*) e classificação **OWASP + CWE**.
