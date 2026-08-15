@@ -13,6 +13,7 @@ import json
 from guardiao import __version__
 from guardiao.core.engine import ScanResult
 from guardiao.core.models import Finding, Severity
+from guardiao.report import provenance
 from guardiao.rules.definitions import OWASP_EDITION
 
 SCHEMA = "suite-appsec/1"
@@ -43,11 +44,18 @@ def finding_to_dict(finding: Finding) -> dict[str, object]:
 
 def to_document(result: ScanResult) -> dict[str, object]:
     counts = {sev.value: result.counts()[sev] for sev in Severity}
-    return {
+    document: dict[str, object] = {
         "schema": SCHEMA,
         "tool": "guardiao",
         "version": __version__,
         "owasp_edition": OWASP_EDITION,
+        # Proveniência (ver report/provenance.py): sem estes três campos o
+        # relatório não é vinculável a um estado do código nem a um estado do
+        # catálogo, e um achado que desaparece na entrega seguinte é
+        # indistinguível de uma regra que foi afrouxada.
+        "commit": provenance.commit(),
+        "ruleset_hash": provenance.ruleset_hash(),
+        "artifact_sha256": None,
         "summary": {
             "total": len(result.findings),
             "by_severity": counts,
@@ -64,6 +72,11 @@ def to_document(result: ScanResult) -> dict[str, object]:
         },
         "findings": [finding_to_dict(f) for f in result.findings],
     }
+    # Por último e sobre o documento já completo: o auto-hash cobre TUDO o mais,
+    # inclusive a proveniência acima. Trocar o commit depois da entrega invalida
+    # o hash.
+    document["artifact_sha256"] = provenance.artifact_sha256(document)
+    return document
 
 
 def to_json(result: ScanResult) -> str:

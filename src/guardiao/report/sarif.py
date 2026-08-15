@@ -18,6 +18,7 @@ from guardiao import __version__
 from guardiao.core.engine import ScanResult
 from guardiao.core.models import Finding, Severity
 from guardiao.core.redaction import KEEP_PUBLICADO, redact
+from guardiao.report import provenance
 from guardiao.rules.definitions import OWASP_EDITION
 from guardiao.rules.registry import all_rules
 
@@ -96,6 +97,21 @@ def _result(finding: Finding) -> dict[str, object]:
 
 
 def to_sarif(result: ScanResult) -> str:
+    # A proveniência vai no NÍVEL DO RUN, e não só em cada regra: quem consome o
+    # arquivo inteiro (a aba Security, um agregador) não deveria precisar abrir uma
+    # regra qualquer para descobrir contra qual commit e qual catálogo o run saiu.
+    propriedades: dict[str, object] = {
+        "owasp_edition": OWASP_EDITION,
+        "commit": provenance.commit(),
+        "ruleset_hash": provenance.ruleset_hash(),
+        "artifact_sha256": None,
+        "skipped": dict(result.skipped),
+        "unitsScanned": result.units_scanned,
+        # O que a varredura sabidamente NÃO alcançou (ex.: objetos
+        # inalcançáveis que um clone não recebe). Sem isso, o Code Scanning
+        # verde de um clone é lido como "o histórico está limpo".
+        "coverageWarnings": list(result.avisos_de_cobertura),
+    }
     document = {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
@@ -111,16 +127,11 @@ def to_sarif(result: ScanResult) -> str:
                 },
                 "results": [_result(f) for f in result.findings],
                 # Property bag do run (permitido pelo schema): o que NÃO foi analisado.
-                "properties": {
-                    "owasp_edition": OWASP_EDITION,
-                    "skipped": dict(result.skipped),
-                    "unitsScanned": result.units_scanned,
-                    # O que a varredura sabidamente NÃO alcançou (ex.: objetos
-                    # inalcançáveis que um clone não recebe). Sem isso, o Code Scanning
-                    # verde de um clone é lido como "o histórico está limpo".
-                    "coverageWarnings": list(result.avisos_de_cobertura),
-                },
+                "properties": propriedades,
             }
         ],
     }
+    # Sobre o `run` já montado e com o campo ainda em `null` — mesma receita do
+    # JSON, aplicada ao objeto onde o campo de proveniência de fato mora no SARIF.
+    propriedades["artifact_sha256"] = provenance.canonical_sha256(document["runs"][0])
     return json.dumps(document, indent=2, ensure_ascii=False)
