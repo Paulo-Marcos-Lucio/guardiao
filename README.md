@@ -239,6 +239,13 @@ em inglês (são identificadores), texto para humano em pt-BR. `summary.by_sever
 **sempre** as cinco severidades, inclusive zeradas, e `summary.skipped` diz o que **não**
 foi analisado. A chave do identificador do achado é `id`.
 
+Todo achado também traz `type` (`credential`, `connection_string`, `generic_secret` ou
+`personal_data` — o que o achado estruturalmente representa) e `confidence` (`high`,
+`medium` ou `low` — confiança do MECANISMO de detecção: formato de fornecedor com
+validador é `high`; heurística pura de entropia é `low`). Os dois são obrigatórios: um
+meta-teste (`tests/test_catalogo.py::test_toda_regra_declara_type_e_confidence`) falha se
+alguma regra do catálogo não os declarar.
+
 ### Hook de pre-commit
 
 `.pre-commit-config.yaml`:

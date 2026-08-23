@@ -11,7 +11,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from guardiao.core.models import Severity
+from guardiao.core.models import Confidence, EvidenceType, Severity
 
 
 @dataclass(frozen=True)
@@ -28,12 +28,18 @@ class Rule:
     - ``only_files``: a regra só vale para arquivos cujo *nome* case um destes
       padrões :mod:`fnmatch` (ex.: ``.env`` — onde o formato ``CHAVE=valor`` sem
       aspas é a norma, e fora dos quais ele seria ruído puro).
+
+    ``evidence_type`` e ``confidence`` são **obrigatórios** (sem default): é o
+    invariante que fecha o EV-10 — uma regra nova no catálogo sem os dois quebra
+    a importação do módulo, antes mesmo do meta-teste rodar.
     """
 
     id: str
     title: str
     severity: Severity
     regex: re.Pattern[str]
+    evidence_type: EvidenceType
+    confidence: Confidence
     cwe: str | None = None
     owasp: str | None = None
     category: str = "secret"
@@ -51,6 +57,8 @@ def compile_rule(
     severity: Severity,
     pattern: str,
     *,
+    evidence_type: EvidenceType,
+    confidence: Confidence,
     flags: int = 0,
     cwe: str | None = None,
     owasp: str | None = None,
@@ -67,6 +75,8 @@ def compile_rule(
         title=title,
         severity=severity,
         regex=re.compile(pattern, flags),
+        evidence_type=evidence_type,
+        confidence=confidence,
         cwe=cwe,
         owasp=owasp,
         category=category,

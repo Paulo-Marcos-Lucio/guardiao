@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy
-from guardiao.core.models import Severity
+from guardiao.core.models import Confidence, EvidenceType, Severity
 from guardiao.rules.base import Rule, compile_rule
 from guardiao.rules.br import cnpj_valido, cpf_valido
 
@@ -143,6 +143,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-321",
             owasp=_A04,
             recommendation="Chave privada exposta compromete TLS/mTLS/assinaturas. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "aws-access-key-id",
@@ -153,6 +155,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Chave de acesso AWS. Desative a chave no IAM e gere outra. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "aws-secret-access-key",
@@ -164,6 +168,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Segredo de acesso AWS. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.MEDIUM,
         ),
         compile_rule(
             "github-token",
@@ -174,6 +180,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A07,
             recommendation="Token do GitHub. Revogue em Settings > Developer settings. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "github-pat-fine-grained",
@@ -184,6 +192,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A07,
             recommendation="Token fine-grained do GitHub. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "gitlab-pat",
@@ -195,6 +205,8 @@ def default_rules() -> list[Rule]:
             owasp=_A07,
             recommendation="Token de acesso pessoal do GitLab (prefixo glpat-). "
             "Revogue em User Settings > Access Tokens. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "npm-token",
@@ -206,6 +218,8 @@ def default_rules() -> list[Rule]:
             owasp=_A03,
             recommendation="Token de acesso do npm (prefixo npm_) permite publicar pacotes — "
             "risco de supply chain. Revogue em npmjs.com > Access Tokens. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "google-api-key",
@@ -217,6 +231,8 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Chave de API do Google. Restrinja/rotacione no Cloud Console. "
             + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "slack-token",
@@ -227,6 +243,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Token do Slack. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "slack-webhook",
@@ -237,6 +255,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-200",
             owasp=_A01,
             recommendation="Webhook do Slack permite postar como o app. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "sendgrid-api-key",
@@ -248,6 +268,8 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Chave de API do SendGrid (prefixo SG.) permite enviar e-mail em seu "
             "domínio — risco de phishing/spoofing. Revogue no painel do SendGrid. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "twilio-api-key",
@@ -260,6 +282,8 @@ def default_rules() -> list[Rule]:
             recommendation="API Key SID do Twilio (SK + 32 hex) autentica envio de SMS/voz e "
             "gera custo na conta. Revogue no Console do Twilio (Account > API keys & tokens). "
             + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "digitalocean-token",
@@ -272,6 +296,8 @@ def default_rules() -> list[Rule]:
             recommendation="Token de acesso da DigitalOcean (dop_/doo_/dor_v1_) dá acesso de "
             "API à infraestrutura (droplets, DNS, storage, faturamento). Revogue em API > Tokens. "
             + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "huggingface-token",
@@ -284,6 +310,8 @@ def default_rules() -> list[Rule]:
             recommendation="Token de acesso do Hugging Face (prefixo hf_). Um token de escrita "
             "pode publicar em repositórios de modelos/datasets — risco de supply chain de ML. "
             "Revogue em Settings > Access Tokens. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "mercadopago-access-token",
@@ -296,6 +324,8 @@ def default_rules() -> list[Rule]:
             recommendation="Access token de produção do Mercado Pago (APP_USR-...) dá acesso "
             "de backend à conta de pagamentos. Revogue e gere outro no painel de credenciais "
             "(Suas integrações). " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "stripe-secret-key",
@@ -307,6 +337,8 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Chave secreta de produção da Stripe. Roll da chave no dashboard. "
             + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "shopify-token",
@@ -320,6 +352,8 @@ def default_rules() -> list[Rule]:
             "shpss_ = shared secret) dá acesso à Admin API da loja — pedidos, clientes e "
             "dados sensíveis. Desinstale/reinstale o app na loja ou gire o segredo no "
             "Partner Dashboard. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "doppler-token",
@@ -333,6 +367,8 @@ def default_rules() -> list[Rule]:
             "segredos: dá acesso a TODOS os segredos das configs a que o usuário tem acesso. "
             "Revogue em Dashboard > Tokens e trate os segredos expostos como comprometidos. "
             + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "linear-api-key",
@@ -345,6 +381,8 @@ def default_rules() -> list[Rule]:
             recommendation="Chave de API pessoal do Linear (lin_api_) autentica na API do "
             "workspace — issues, projetos e roadmap. Revogue em Settings > Security & access "
             "> API. " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "jwt",
@@ -356,6 +394,8 @@ def default_rules() -> list[Rule]:
             owasp=_A07,
             recommendation="JWT no código. Se for de sessão/serviço, invalide-o. "
             "Confirme se não carrega dados sensíveis no payload (é apenas base64, não é cifrado).",
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.MEDIUM,
         ),
         compile_rule(
             "db-connection-uri",
@@ -374,6 +414,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="String de conexão com usuário e senha embutidos. " + _ROTATE,
+            evidence_type=EvidenceType.CONNECTION_STRING,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "basic-auth-url",
@@ -385,6 +427,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-522",
             owasp=_A07,
             recommendation="Usuário:senha embutidos na URL vazam em logs e histórico. " + _ROTATE,
+            evidence_type=EvidenceType.CONNECTION_STRING,
+            confidence=Confidence.MEDIUM,
         ),
         compile_rule(
             "generic-assignment",
@@ -396,6 +440,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Valor de aparência secreta atribuído a uma chave sensível. " + _ROTATE,
+            evidence_type=EvidenceType.GENERIC_SECRET,
+            confidence=Confidence.MEDIUM,
         ),
         # Segredo de alta entropia embutido num SEGMENTO de path/URL (`/_internal/<32c>/…`).
         # A regra genérica de entropia diluía o token no `/` e o keyword-gate cegava a
@@ -417,6 +463,8 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Token aleatório embutido num caminho/URL (vaza em logs, "
             "referrer e histórico do navegador). " + _ROTATE,
+            evidence_type=EvidenceType.GENERIC_SECRET,
+            confidence=Confidence.LOW,
         ),
         compile_rule(
             "dotenv-assignment",
@@ -429,6 +477,8 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Credencial em texto claro num arquivo de ambiente versionado. "
             "Tire o arquivo do controle de versão (.gitignore). " + _ROTATE,
+            evidence_type=EvidenceType.CREDENTIAL,
+            confidence=Confidence.MEDIUM,
         ),
         compile_rule(
             "high-entropy-string",
@@ -442,6 +492,8 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Cadeia longa e aleatória com cara de segredo. Confirme se não é "
             "credencial/chave; se for, " + _ROTATE,
+            evidence_type=EvidenceType.GENERIC_SECRET,
+            confidence=Confidence.LOW,
         ),
         compile_rule(
             "cpf",
@@ -455,6 +507,8 @@ def default_rules() -> list[Rule]:
             owasp="A04:2025 / LGPD art. 46",
             recommendation="CPF em texto claro é dado pessoal (LGPD). Remova de logs/código, "
             "minimize e proteja o tratamento; considere anonimização/pseudonimização.",
+            evidence_type=EvidenceType.PERSONAL_DATA,
+            confidence=Confidence.HIGH,
         ),
         compile_rule(
             "cnpj",
@@ -467,6 +521,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-359",
             owasp="A04:2025 / LGPD",
             recommendation="CNPJ em texto claro. Avalie se precisa estar versionado no repositório.",
+            evidence_type=EvidenceType.PERSONAL_DATA,
+            confidence=Confidence.HIGH,
         ),
     ]
 

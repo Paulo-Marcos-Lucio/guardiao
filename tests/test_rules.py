@@ -144,11 +144,18 @@ def test_owasp_e_todo_da_edicao_2025() -> None:
 
 
 def test_ids_duplicados_sao_rejeitados() -> None:
-    from guardiao.core.models import Severity
+    from guardiao.core.models import Confidence, EvidenceType, Severity
     from guardiao.rules.base import compile_rule
     from guardiao.rules.registry import _assert_unique_ids
 
-    duplicada = compile_rule("dup", "t", Severity.LOW, "x")
+    duplicada = compile_rule(
+        "dup",
+        "t",
+        Severity.LOW,
+        "x",
+        evidence_type=EvidenceType.GENERIC_SECRET,
+        confidence=Confidence.LOW,
+    )
     with pytest.raises(ValueError, match="regra duplicada"):
         _assert_unique_ids([duplicada, duplicada])
 

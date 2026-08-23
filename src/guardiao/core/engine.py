@@ -296,6 +296,8 @@ class Scanner:
                     secret=secret,
                     redacted=redact(secret),
                     line_preview=preview,
+                    evidence_type=rule.evidence_type,
+                    confidence=rule.confidence,
                     entropy=round(entropy, 2),
                     cwe=rule.cwe,
                     owasp=rule.owasp,
