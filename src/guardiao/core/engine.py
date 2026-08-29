@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import functools
+import itertools
 import re
 import time
+from collections import deque
 from collections.abc import Iterable, Iterator
+from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass, field, replace
 from fnmatch import fnmatch
 from pathlib import Path, PurePath
@@ -325,22 +328,29 @@ class Scanner:
     # -- pipeline único ----------------------------------------------------- #
 
     def scan_units(
-        self, units: Iterable[Unit], skipped: dict[str, int] | None = None
+        self,
+        units: Iterable[Unit],
+        skipped: dict[str, int] | None = None,
+        *,
+        jobs: int = 1,
     ) -> ScanResult:
         """Varre unidades já materializadas. Todo comando desemboca aqui.
 
         ``skipped`` é usado **por referência**: as fontes são preguiçosas e só
         contabilizam o que pularam enquanto o laço abaixo as consome.
+
+        ``jobs`` > 1 distribui ``scan_text`` — o passo caro, regex linha a linha —
+        por processos (ver :func:`_scan_parallel`). ``jobs`` <= 1 é o caminho
+        sequencial original, sem custo de subprocesso.
         """
         started = time.perf_counter()
         contadores: dict[str, int] = skipped if skipped is not None else {}
         for motivo in MOTIVOS_DE_PULO:
             contadores.setdefault(motivo, 0)
-        findings: list[Finding] = []
-        units_scanned = 0
-        for path, text, commit in units:
-            units_scanned += 1
-            findings.extend(self.scan_text(path, text, commit=commit, contadores=contadores))
+        if jobs > 1:
+            findings, units_scanned = self._scan_parallel(units, contadores, jobs)
+        else:
+            findings, units_scanned = self._scan_sequential(units, contadores)
         findings.sort(key=lambda f: (-f.severity.rank, f.location.path, f.location.line))
         placeholders = contadores.pop("placeholder", 0)
         return ScanResult(
@@ -351,15 +361,79 @@ class Scanner:
             placeholders=placeholders,
         )
 
+    def _scan_sequential(
+        self, units: Iterable[Unit], contadores: dict[str, int]
+    ) -> tuple[list[Finding], int]:
+        findings: list[Finding] = []
+        units_scanned = 0
+        for path, text, commit in units:
+            units_scanned += 1
+            findings.extend(self.scan_text(path, text, commit=commit, contadores=contadores))
+        return findings, units_scanned
+
+    def _scan_parallel(
+        self, units: Iterable[Unit], contadores: dict[str, int], jobs: int
+    ) -> tuple[list[Finding], int]:
+        """Mesmo resultado de :meth:`_scan_sequential`, distribuído por processos.
+
+        ``scan_text`` é regex Python pura — presa ao GIL, então threads não
+        paralelizam o custo de CPU; por isso processos, não ``ThreadPoolExecutor``.
+
+        Unidade de despacho é um LOTE de ``_TAMANHO_DO_LOTE`` unidades, não uma
+        unidade por tarefa: a mediana medida no histórico de ``psf/requests`` é
+        ~640 bytes por blob, e nesse regime o custo FIXO de cada ida-e-volta entre
+        processos (serializar, enfileirar, desserializar) supera o custo de rodar
+        `scan_text` propriamente. Medido nesta máquina (4 CPUs, `psf/requests` em
+        2026-08-29, 14.978 blobs/120 MB): uma tarefa por blob rendia ~2x com
+        `--jobs 4`; em lotes de ``_TAMANHO_DO_LOTE``, 85,8 s → 22,2 s (3,9x),
+        com o mesmo conjunto de fingerprints, `commit`/`commit_last` inclusive,
+        do caminho sequencial.
+
+        A ordem de ENTREGA dos resultados segue a ordem de SUBMISSÃO (uma fila
+        FIFO de futuros, não ``as_completed``): é o que garante que o achado
+        colapsado do histórico (``_collapse_history``, que depende da ordem de
+        varredura para decidir ``commit_last``) saia byte-a-byte igual ao caminho
+        sequencial — só mais rápido, nunca diferente. Dentro de um lote a ordem
+        também é preservada (o worker itera o lote na ordem recebida).
+
+        A janela de lotes em voo (``2x jobs``) mantém memória limitada: submeter
+        tudo de uma vez (``Executor.map`` também materializa o iterável inteiro
+        antes de despachar) carregaria o histórico inteiro do repositório em RAM.
+        """
+        findings: list[Finding] = []
+        units_scanned = 0
+        lotes = _em_lotes(units, _TAMANHO_DO_LOTE)
+        janela = max(2 * jobs, jobs)
+        with ProcessPoolExecutor(
+            max_workers=jobs, initializer=_init_worker, initargs=(self.config,)
+        ) as pool:
+            pendentes: deque[Future[tuple[list[Finding], dict[str, int], int]]] = deque(
+                pool.submit(_scan_lote_worker, lote) for lote in itertools.islice(lotes, janela)
+            )
+            for lote in lotes:
+                lote_findings, lote_contadores, lote_n = pendentes.popleft().result()
+                units_scanned += lote_n
+                findings.extend(lote_findings)
+                _acumular(contadores, lote_contadores)
+                pendentes.append(pool.submit(_scan_lote_worker, lote))
+            while pendentes:
+                lote_findings, lote_contadores, lote_n = pendentes.popleft().result()
+                units_scanned += lote_n
+                findings.extend(lote_findings)
+                _acumular(contadores, lote_contadores)
+        return findings, units_scanned
+
     # -- varredura de arquivos ---------------------------------------------- #
 
-    def scan_paths(self, paths: Iterable[Path | str]) -> ScanResult:
+    def scan_paths(self, paths: Iterable[Path | str], *, jobs: int = 1) -> ScanResult:
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
-        return self.scan_units(_file_units(paths, self.config, skipped), skipped)
+        return self.scan_units(_file_units(paths, self.config, skipped), skipped, jobs=jobs)
 
     # -- varredura de histórico Git ----------------------------------------- #
 
-    def scan_git_history(self, repo: Path | str, *, permitir_shallow: bool = False) -> ScanResult:
+    def scan_git_history(
+        self, repo: Path | str, *, permitir_shallow: bool = False, jobs: int = 1
+    ) -> ScanResult:
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
         # `avisos` é preenchido por REFERÊNCIA, como `skipped`: a fonte é preguiçosa e
         # só declara o que descobriu enquanto o pipeline a consome.
@@ -374,13 +448,61 @@ class Scanner:
                 avisos=avisos,
             )
         )
-        result = self.scan_units(units, skipped)
+        result = self.scan_units(units, skipped, jobs=jobs)
         result.avisos_de_cobertura = avisos
         # O MESMO segredo persiste em dezenas de blobs (todo commit que tocou o arquivo
         # o recarrega): 283 linhas brutas eram ~64 vazamentos distintos. Colapsa por
         # fingerprint (regra+arquivo+valor ocultado) em UM achado, contando as recidivas.
         result.findings = _collapse_history(result.findings)
         return result
+
+
+#: Instância de :class:`Scanner` privada de CADA processo-worker, montada uma vez por
+#: ``_init_worker`` (o `initializer` do `ProcessPoolExecutor`) — reconstruir as regras a
+#: cada unidade custaria mais que o próprio ``scan_text``. `global` é o padrão do módulo
+#: `multiprocessing`/`concurrent.futures` para estado por-processo: cada processo-filho
+#: importa este módulo do zero e tem o SEU PRÓPRIO `_worker_scanner`, nunca compartilhado.
+_worker_scanner: Scanner | None = None
+
+
+def _init_worker(config: Config) -> None:  # pragma: no cover - roda só no processo-filho
+    global _worker_scanner
+    _worker_scanner = Scanner(config)
+
+
+#: Unidades por tarefa de worker. Ver o docstring de `Scanner._scan_parallel` para a
+#: medição que motivou o número: lotear amortiza o custo fixo de IPC entre processos
+#: quando a unidade típica (um blob do histórico) é pequena.
+_TAMANHO_DO_LOTE = 64
+
+
+def _em_lotes(units: Iterable[Unit], tamanho: int) -> Iterator[list[Unit]]:
+    it = iter(units)
+    while lote := list(itertools.islice(it, tamanho)):
+        yield lote
+
+
+def _scan_lote_worker(
+    lote: list[Unit],
+) -> tuple[list[Finding], dict[str, int], int]:  # pragma: no cover
+    """Corpo do trabalho de um worker: mesmo `scan_text` do caminho sequencial, uma
+    unidade de cada vez, dentro do lote recebido — a ordem do lote é preservada.
+
+    ``contadores`` nasce vazio aqui e volta pelo valor de retorno — cada processo tem
+    memória própria, então não há como acumular por referência através do `pool`; quem
+    soma os contadores de todos os workers é `_acumular`, no processo principal.
+    """
+    assert _worker_scanner is not None, "worker sem _init_worker"
+    findings: list[Finding] = []
+    contadores: dict[str, int] = {}
+    for path, text, commit in lote:
+        findings.extend(_worker_scanner.scan_text(path, text, commit=commit, contadores=contadores))
+    return findings, contadores, len(lote)
+
+
+def _acumular(total: dict[str, int], parcial: dict[str, int]) -> None:
+    for motivo, quantidade in parcial.items():
+        total[motivo] = total.get(motivo, 0) + quantidade
 
 
 def _file_units(
