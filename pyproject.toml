@@ -26,6 +26,9 @@ dependencies = [
   # explicitamente — cinto e suspensório. Testado com a 0.27 desta árvore.
   "typer>=0.16",
   "rich>=13.7",
+  # tomllib é stdlib a partir do 3.11; o piso do projeto é 3.10 (ver
+  # requires-python), que precisa do backport para `--regras arquivo.toml`.
+  "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +44,11 @@ dev = [
   # não só os exemplos que alguém pensou. É a rede contra "defeito de classe" — foi um
   # corpo base64 de PEM (821 FP num cacert.pem) que nenhum fixture cobria.
   "hypothesis>=6.100",
+  # Sem marcador (ao contrário da dependência de runtime acima): o mypy do
+  # projeto fixa `python_version = "3.10"` para toda a matriz de CI, então
+  # ele sempre resolve o ramo `tomli` de `rules/external.py` — inclusive
+  # rodando sob 3.11+, onde o marcador de runtime não instalaria o pacote.
+  "tomli>=2.0.1",
 ]
 
 [project.urls]

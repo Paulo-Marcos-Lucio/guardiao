@@ -208,9 +208,36 @@ Principais opções do `scan`:
 | `--baseline` / `--update-baseline` | Suprime achados conhecidos / (re)grava o baseline. |
 | `--fail-on` | `none`/`info`/`low`/`medium`/`high`/`critical` — código de saída 1 para CI. |
 | `--only` / `--skip` / `--skip-category` | Filtra regras ou categorias (ex.: `--skip-category pii`). |
+| `--regras` | Carrega regras adicionais de um TOML declarativo — ver [Regras externas](#regras-externas). |
 | `--no-entropy` | Desliga a detecção por entropia. |
 | `--scan-lockfiles` | Também varre lockfiles/minificados (pulados por padrão). |
 | `--max-file-size` / `--max-line-length` | Tetos de varredura (padrão: 5 MB / 4.000 chars). |
+
+### Regras externas
+
+Um padrão específico de um cliente — token interno, convenção de nome de
+segredo — não precisa esperar um release do Guardião. `--regras arquivo.toml`
+carrega tabelas `[[regra]]` adicionais; cada uma vira uma regra tratada
+**exatamente como as internas**: mesmo motor, mesma estrutura no relatório.
+
+```toml
+[[regra]]
+id = "acme-token-interno"
+padrao = 'ACME_TOK_[A-Z0-9]{32}'
+severidade = "high"                   # critical | high | medium | low | info
+categoria = "secret"                  # opcional, default "secret"
+only_files = ["*.env"]                # opcional, default: qualquer arquivo
+titulo = "Token interno Acme vazado"  # opcional, default = id
+```
+
+```bash
+guardiao scan . --regras minhas.toml
+```
+
+TOML malformado, campo obrigatório ausente, severidade desconhecida, regex
+inválida ou id que colide com uma regra interna abortam com exit `2` — a
+mesma postura de `--only`/`--skip` com id inexistente: nunca "verde
+silencioso" por typo.
 
 ### Códigos de saída
 
