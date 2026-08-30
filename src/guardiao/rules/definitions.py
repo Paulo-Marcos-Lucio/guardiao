@@ -77,10 +77,73 @@ HASH_CONTEXT: tuple[str, ...] = (
     "idempotency",
 )
 
+# Contexto de CHAVE PÚBLICA / valor publicável: quando a linha fala de chave pública,
+# JWKS, chave publicável de fornecedor (Stripe pk_live/pk_test) ou site-key de reCAPTCHA,
+# a cadeia de alta entropia ali é um valor PÚBLICO por design — não uma credencial (FP-02).
+PUBLIC_KEY_CONTEXT: tuple[str, ...] = (
+    "public_key",
+    "publickey",
+    "pub_key",
+    "pubkey",
+    "public-key",
+    "publishable",
+    "pk_live",
+    "pk_test",
+    "site_key",
+    "sitekey",
+    "recaptcha",
+    "jwks",
+    "authorized_keys",
+    "known_hosts",
+    "ssh-rsa",
+    "ssh-ed25519",
+    "ssh-dss",
+    "verify_key",
+    "verifying_key",
+    "x5c",
+    "kty",
+    "dkim",
+)
+
+
+# Hash de senha em formato crypt(3)/PHC (`$2b$…` bcrypt, `$argon2id$…`, `$6$…` sha512-crypt,
+# `pbkdf2_sha256$…` Django, `sha256$…`): é o HASH já derivado, não a senha em claro. Guardião
+# detecta segredo/credencial em claro; um hash não é isso (FP-03).
+_HASH_CRIPTO_RE = re.compile(
+    r"^\$(?:2[aby]?|1|5|6|argon2(?:i|d|id)?|scrypt|apr1|y|pbkdf2[\w-]*|sha\d+|md5)\$"
+    r"|^(?:pbkdf2_(?:sha\d+|hmac)|bcrypt|argon2|scrypt|sha1|sha256|sha512)\$",
+    re.IGNORECASE,
+)
+
+
+# Mesmo padrão, mas para procurar EM QUALQUER PONTO da linha (um `$2b$12$…` embutido num
+# INSERT SQL ou num YAML de seed). O `high-entropy-string` captura o corpo base64 do hash e
+# suas barras viram "path" — neutralizar a entropia na linha inteira mata a classe (FP-03).
+_HASH_CRIPTO_LINHA_RE = re.compile(
+    r"\$(?:2[aby]?|1|5|6|argon2(?:i|d|id)?|scrypt|apr1|y|pbkdf2[\w-]*|sha\d+|md5)\$"
+    r"|(?:pbkdf2_(?:sha\d+|hmac)|bcrypt|argon2|scrypt)\$",
+    re.IGNORECASE,
+)
+
+
+def e_hash_cripto(value: str) -> bool:
+    """O valor é um hash de senha em formato crypt/PHC (não a senha em claro)?"""
+    return bool(_HASH_CRIPTO_RE.match(value.strip()))
+
+
+def linha_tem_hash_cripto(raw_line: str) -> bool:
+    """A linha contém um hash crypt/PHC (bcrypt/argon2/sha-crypt)? Então a alta entropia
+    ali é o hash, não uma credencial em claro (FP-03)."""
+    return bool(_HASH_CRIPTO_LINHA_RE.search(raw_line))
+
+
 # Palavras-chave que marcam uma atribuição como sensível na regra genérica.
+# `pass` e `senha` (PT-BR) entram por último e SÓ casam em fronteira de palavra/`_`
+# (`DB_PASS`, `senha =`) — nunca dentro de `compass`/`bypass`. `passphrase` (chave de
+# GPG/SSH) é palavra própria, não coberta por `password`.
 _CHAVE_SENSIVEL = (
-    "password|passwd|pwd|secret[_-]?key|secret|token|api[_-]?key|apikey"
-    "|access[_-]?key|client[_-]?secret|auth[_-]?token|private[_-]?key"
+    "password|passwd|pwd|passphrase|secret[_-]?key|secret|token|api[_-]?key|apikey"
+    "|access[_-]?key|client[_-]?secret|auth[_-]?token|private[_-]?key|senha|pass"
 )
 # Em camelCase, `...Token` e `...Key` são sufixos comuns de lexer/parser/AST
 # (`nextLastSignificantToken`, `UnexpectedToken`). Numa medição em 24.943 arquivos reais,
@@ -124,13 +187,72 @@ _ARQUIVOS_DOTENV = (
     "!*.sample",
     "!*.template",
     "!*.dist",
+    "!example.*",
+    "!sample.*",
+    "!template.*",
+    "!*.example.*",
+    "!*.sample.*",
+    "!*example*",
 )
+# Valor SEM aspas. `$` saiu da classe de exclusão: um cifrão é caractere comum de
+# senha (`Xk9$abc…`) e barrá-lo criava falso-negativo; o template `${VAR}` continua
+# excluído pelas chaves `{}` e o ref de shell `$VAR` cru é barrado pelo validator.
+# A cauda `(?:[ \t]+#…)?` aceita o comentário inline que dotenv/docker permitem.
 _DOTENV_PATTERN = (
     r"^[ \t]*(?:export[ \t]+)?[A-Za-z0-9_]*"
     rf"(?<![A-Za-z0-9])(?i:{_CHAVE_SENSIVEL})(?![A-Za-z0-9])"
     r"[A-Za-z0-9_]*[ \t]*=[ \t]*"
-    r"""([^\s"'\n(){}\[\]$;,<>]{8,80})[ \t]*$"""
+    r"""([^\s"'\n(){}\[\];,<>]{8,80})(?:[ \t]+#[^\n]*)?[ \t]*$"""
 )
+# Valor ENTRE aspas em `.env` — permite ESPAÇO no valor (passphrase de GPG/SSH, que
+# legitimamente tem espaço) e serve os casos que a genérica não pega porque o valor
+# tem espaço ou a chave é `passphrase`/`senha`. O `\1` fecha na mesma aspa que abriu.
+_DOTENV_QUOTED_PATTERN = (
+    r"^[ \t]*(?:export[ \t]+)?[A-Za-z0-9_]*"
+    rf"(?<![A-Za-z0-9])(?i:{_CHAVE_SENSIVEL})(?![A-Za-z0-9])"
+    r"[A-Za-z0-9_]*[ \t]*=[ \t]*"
+    r"""(['"])(.{6,200}?)\1[ \t]*(?:#[^\n]*)?$"""
+)
+
+# Arquivos de CONFIGURAÇÃO/CREDENCIAL onde `chave: valor` / `chave=valor` / `<chave>valor`
+# SEM aspas é a convenção de credencial (YAML de k8s/compose/Helm, `.properties` do
+# Spring, `.cnf`/`.ini`, `settings.xml`/`web.config`, `.npmrc`, `.pypirc`, `netrc`). Fora
+# desses formatos — em código-fonte — `password = get_env()` é uma das linhas mais comuns
+# que existem, e é por isso que a regra é ESCOPADA por nome de arquivo (como a do `.env`).
+_ARQUIVOS_CONFIG = (
+    "*.yml",
+    "*.yaml",
+    "*.properties",
+    "*.cnf",
+    "*.ini",
+    "*.conf",
+    "*.config",
+    "*.xml",
+    "*.npmrc",
+    ".npmrc",
+    ".pypirc*",
+    "netrc",
+    ".netrc",
+)
+# Chave sensível para a regra de config: além do vocabulário comum, os nomes de campo de
+# credencial de ferramenta (`_authToken`/`_auth` do npm, `AccountKey` do Azure).
+_CHAVE_CONFIG = (
+    r"password|passwd|pwd|passphrase|secret[_-]?key|secret|token|api[_-]?key|apikey"
+    r"|access[_-]?key|client[_-]?secret|auth[_-]?token|private[_-]?key|senha|pass"
+    r"|_authtoken|_auth|account[_-]?key|accountkey"
+)
+# Palavra sensível colada a UM delimitador de config (`:` de YAML, `=` de INI/query,
+# `>` de XML, ou espaço de netrc) e um valor sem aspas. O delimitador tem de vir LOGO
+# após a palavra — `auth.password.error=…` (i18n) não casa, porque entre `password` e
+# `=` há `.error`. É esse "adjacente ao delimitador" que separa credencial de string i18n.
+_CONFIG_SECRET_PATTERN = (
+    r"(?<![A-Za-z0-9])(?i:" + _CHAVE_CONFIG + r")(?![A-Za-z])"
+    r"(?:\s*[:=]\s*|\s*>\s*|[ \t]+)"
+    r"""([^\s"'<>;,&\n]{6,200})"""
+)
+# `.pgpass`: linha POSICIONAL `host:porta:db:usuário:senha` — sem palavra-chave, o
+# segredo é o 5º campo. Escopada a `.pgpass` (por isso 4 dois-pontos bastam como forma).
+_PGPASS_PATTERN = r"^[^:\n]+:[^:\n]*:[^:\n]*:[^:\n]*:([^:\n]{4,})[ \t]*$"
 
 
 def default_rules() -> list[Rule]:
@@ -139,7 +261,13 @@ def default_rules() -> list[Rule]:
             "private-key",
             "Chave privada (PEM/OpenSSH)",
             Severity.CRITICAL,
-            r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+            # Além do PEM canônico de 5 traços, os cabeçalhos reais de outras ferramentas:
+            # bloco PGP (`… PRIVATE KEY BLOCK`), formato SSH.com/SSH2 (4 traços e espaços
+            # em volta), e o `.ppk` do PuTTY (`PuTTY-User-Key-File-N:`). Todos exigem a
+            # palavra PRIVATE — o par PÚBLICO (`PGP PUBLIC KEY BLOCK`) nunca casa.
+            r"(?:-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----"
+            r"|-{4,5} ?BEGIN SSH2 (?:ENCRYPTED )?PRIVATE KEY ?-{4,5}"
+            r"|PuTTY-User-Key-File-\d+:[ \t]*\S+)",
             cwe="CWE-321",
             owasp=_A04,
             recommendation="Chave privada exposta compromete TLS/mTLS/assinaturas. " + _ROTATE,
@@ -367,10 +495,23 @@ def default_rules() -> list[Rule]:
             # `(?:\+[a-z0-9]+)?` aceita o sufixo +driver do SQLAlchemy/DBAPI
             # (`postgresql+psycopg://`, `mysql+pymysql://`) — a forma que TODO backend
             # FastAPI/SQLAlchemy usa; sem isso a senha embutida passava batida.
-            r"\b((?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps)"
-            r"(?:\+[a-z0-9]+)?://"
-            r"[^:@\s/]*:[^@\s/]+@[^\s'\"]+)",
+            # `(?:jdbc:)?` cobre o prefixo do driver Java (`jdbc:postgresql://`,
+            # `jdbc:mariadb://…`); os esquemas `mariadb`/`mssql`/`sqlserver`/`smtp` são
+            # tão comuns quanto os já listados e têm o MESMO formato `user:senha@host`.
+            # `oracle`/`snowflake`/`clickhouse`/`cassandra` (e dialetos SQLAlchemy afins) são
+            # bancos de porte igual aos demais e tinham a senha embutida passando batida.
+            # O `_` na classe do sufixo cobre o driver `oracle+cx_oracle`. A 2ª alternativa
+            # cobre a forma THIN do Oracle (esquema `oracle:thin:`, com `usuário/senha` antes
+            # do `@` e SEM o `://`) — é por não ter `://` que ela não casa a 1ª forma.
+            r"\b((?:jdbc:)?(?:postgres|postgresql|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss"
+            r"|amqp|amqps|mssql|sqlserver|smtp|smtps|oracle|snowflake|clickhouse|cassandra"
+            r"|cockroachdb|db2|vertica|presto|trino)"
+            r"(?:\+[a-z0-9_]+)?://"
+            r"[^:@\s/]*:[^@\s/]+@[^\s'\"<>]+"
+            r"|(?:jdbc:)?oracle:thin:[^/@\s]+/[^@\s]+@[^\s'\"<>]+)",
             secret_group=1,
+            composto=True,
+            validator=_uri_conexao_e_vazamento,
             cwe="CWE-798",
             owasp=_A02,
             recommendation="String de conexão com usuário e senha embutidos. " + _ROTATE,
@@ -424,11 +565,50 @@ def default_rules() -> list[Rule]:
             Severity.HIGH,
             _DOTENV_PATTERN,
             secret_group=1,
+            validator=_dotenv_valor_real,
             only_files=_ARQUIVOS_DOTENV,
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Credencial em texto claro num arquivo de ambiente versionado. "
             "Tire o arquivo do controle de versão (.gitignore). " + _ROTATE,
+        ),
+        compile_rule(
+            "dotenv-quoted",
+            "Segredo em arquivo .env (valor entre aspas)",
+            Severity.HIGH,
+            _DOTENV_QUOTED_PATTERN,
+            secret_group=2,
+            validator=_env_quoted_e_segredo,
+            only_files=_ARQUIVOS_DOTENV,
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Credencial (inclusive passphrase com espaço) em texto claro num "
+            "arquivo de ambiente versionado. Tire o arquivo do controle de versão. " + _ROTATE,
+        ),
+        compile_rule(
+            "config-file-secret",
+            "Segredo em arquivo de configuração (valor sem aspas)",
+            Severity.HIGH,
+            _CONFIG_SECRET_PATTERN,
+            secret_group=1,
+            validator=_config_valor_real,
+            only_files=_ARQUIVOS_CONFIG,
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Credencial em texto claro num arquivo de configuração versionado "
+            "(YAML/INI/properties/XML/npmrc/netrc). Mova para um cofre de segredos. " + _ROTATE,
+        ),
+        compile_rule(
+            "pgpass-credential",
+            "Senha em arquivo .pgpass",
+            Severity.HIGH,
+            _PGPASS_PATTERN,
+            secret_group=1,
+            validator=looks_like_secret_value,
+            only_files=(".pgpass",),
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Senha em texto claro no 5º campo de um .pgpass versionado. " + _ROTATE,
         ),
         compile_rule(
             "high-entropy-string",
@@ -502,6 +682,31 @@ PLACEHOLDER_SUBSTRINGS: tuple[str, ...] = (
     "fake_",
     "mock",
     "stub",
+    "change_me",
+    "changeme",
+    "change-this",
+    "please",
+    "substitute",
+    "replace_",
+    "replace-",
+    "set_this",
+    "set-this",
+    "setthis",
+    "insert_your",
+    "provide_your",
+    "enter_your",
+    "todo",
+    "change_this",
+    "change this",
+    "substitu",
+    "troque",
+    "insira",
+    "coloque",
+    "preencha",
+    "seu_token",
+    "sua_senha",
+    "real-token",
+    "real_token",
 )
 
 # Exemplos canônicos da documentação de fornecedores.
@@ -509,6 +714,16 @@ KNOWN_FAKE_SECRETS: frozenset[str] = frozenset(
     {
         "AKIAIOSFODNN7EXAMPLE",
         "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        # Chave de TESTE canônica da documentação do Stripe (aparece em quase todo exemplo).
+        "sk_test_" + "4eC39HqLyjWDarjtT1zdp7dc",
+        "pk_test_" + "TYooMQauvdEDq54NiTphI7jx",
+        # JWT canônico do jwt.io (HS256, John Doe) — exemplo de documentação onipresente.
+        # Como o `high-entropy-string` quebra o JWT nos `.`, cada segmento entra à parte.
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4g"
+        "RG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ",
+        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
     }
 )
 
@@ -696,6 +911,57 @@ def _num_char_classes(value: str) -> int:
     )
 
 
+#: Caminho de filesystem (POSIX absoluto, drive do Windows, UNC ou relativo `./`/`../`).
+#: Num arquivo de config, `secret: /etc/app/tls/server.key` é o caminho de UM segredo, não
+#: o segredo — a barra/contrabarra inicial é a assinatura estrutural.
+_CAMINHO_FS = re.compile(r"^(?:/|[A-Za-z]:[\\/]|\\\\|\.{1,2}/)")
+#: Versão semver (`v2.14.3-alpine`, `1.2.0`): número.número no início.
+_SEMVER = re.compile(r"^v?\d+\.\d+(?:[.\-+]|$)")
+#: Enum/identificador segmentado: 2+ segmentos alfanuméricos unidos por `.` `:` `_` `-`
+#: (`TLSv1.3-AES256-SHA`, `HS256-RS512-mix`, `X-Company-ApiKey`). Um cipher-suite, nome de
+#: header ou algoritmo se decompõe assim; um blob base64/hex aleatório, não (e ele já é de
+#: alta entropia, tratado antes).
+_ENUM_SEGMENTADO = re.compile(r"^[A-Za-z0-9]+(?:[.:_\-][A-Za-z0-9]+)+$")
+
+
+def _e_forma_estrutural_nao_segredo(value: str) -> bool:
+    """O valor tem FORMA estrutural de não-segredo (caminho / versão / enum legível)?
+
+    CAUSA-RAIZ da regressão de recall em `config-file-secret`: em arquivo de config o valor
+    vem SEM aspas, então caminho (`/etc/app/tls/server.key`), versão (`v2.14.3-alpine`) e
+    cipher-suite/header/algoritmo (`TLSv1.3-AES256-SHA`, `X-Company-ApiKey`, `HS256-RS512-mix`)
+    caíam no ramo "3 classes de caractere" de :func:`looks_like_secret_value` e viravam HIGH.
+    O discriminante é a ESTRUTURA, não a entropia: essas formas se decompõem em segmentos
+    curtos/legíveis; um segredo real de alta entropia NÃO é uma delas (e é aceito antes, pelo
+    ramo de entropia). Usado só no regime de baixa entropia, então não cega segredo real."""
+    if _CAMINHO_FS.match(value) or _SEMVER.match(value):
+        return True
+    # A decomposição em enum/identificador só faz sentido quando há SEPARADOR real
+    # (`-` `_` `.` `:`). Um blob contínuo de letras/dígitos (`Xk9AAAAAAAaAA`) é a forma de
+    # um SEGREDO, não de um enum — e não pode ser cegado por uma leitura camelCase forçada.
+    if not any(c in value for c in "-_.:"):
+        return False
+    if _parece_identificador_de_codigo(value):
+        return True  # `X-Company-ApiKey`: segmentos são palavras legíveis
+    if _ENUM_SEGMENTADO.match(value):
+        segmentos = re.split(r"[.:_\-]", value)
+        # cipher-suite/algoritmo: todos os segmentos são curtos (≤8) — estrutura de enum,
+        # não a cauda longa e contínua de um token aleatório.
+        return len(segmentos) >= 2 and all(len(s) <= 8 for s in segmentos)
+    return False
+
+
+def _proporcao_vogais(token: str) -> float:
+    vogais = sum(1 for c in token.lower() if c in "aeiou")
+    return vogais / len(token) if token else 0.0
+
+
+def tem_letra_nao_ascii(s: str) -> bool:
+    """Tem letra acentuada/não-ASCII? Um segredo base64/hex é ASCII puro; uma palavra
+    natural (alemão `Zugriffsschlüssel`) não — e é isso que o corpo do token denuncia (FP-07)."""
+    return any(ord(c) > 127 and c.isalpha() for c in s)
+
+
 def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> bool:
     """Um token isolado (segmento de path, cadeia solta) parece gerado aleatoriamente?
 
@@ -710,7 +976,13 @@ def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> 
         return False  # identificador de código (`cert_encrypted_private_key_file`) não é segredo
     if is_high_entropy(token):
         return True
-    return _max_consonant_run(token) >= 6
+    if _max_consonant_run(token) < 6:
+        return False
+    # Corrida de consoantes aceita blob impronunciável (ex.: base64 MAIÚSCULO), MAS uma
+    # palavra natural composta (alemão `...schluessel`, com `ue`) também dispara. O
+    # discriminante: palavra é toda alfabética e tem vogais suficientes; segredo real
+    # quase sempre traz dígitos/símbolos (FP-07).
+    return not (token.isalpha() and _proporcao_vogais(token) >= 0.22)
 
 
 #: Partes de uma URL Basic-Auth, tolerante a host vazio/absurdo (o que os fixtures de
@@ -800,6 +1072,8 @@ def looks_like_secret_value(value: str) -> bool:
     """
     if any(c.isspace() for c in value):
         return False
+    if e_hash_cripto(value):
+        return False  # hash de senha (bcrypt/argon2/sha-crypt) é derivado, não a senha (FP-03)
     if _predominantemente_url_encoded(value):
         return False  # `%F0%9F%92%A9` (emoji URL-encoded de fixture) não é credencial
     if is_high_entropy(value) or _HEX_SECRET.match(value):
@@ -816,3 +1090,63 @@ def looks_like_secret_value(value: str) -> bool:
     if _num_char_classes(value) >= 3:
         return True
     return len(value) >= MIN_SECRET_LEN and _max_consonant_run(value) >= 6
+
+
+# --------------------------------------------------------------------------- #
+# Validadores das regras de URI/config/credencial (real vs. exemplo)
+# --------------------------------------------------------------------------- #
+def _uri_conexao_e_vazamento(uri: str) -> bool:
+    """A URI de conexão carrega credencial REAL, ou é exemplo/template?
+
+    A regra é ``composto=True``: o motor NÃO roda o filtro de placeholder por substring
+    (que barrava errado `db.prod.internal/sample_reports` por conter ``sample``). Aqui a
+    decisão é ESTRUTURAL — ``is_obvious_fake`` parseia a URL (``user:senha@host``) e só
+    reprova quando usuário E senha são placeholder (`foo:bar`), o host é de exemplo
+    (`localhost`/IP privado/`example.com`) com senha fraca, ou o valor é template
+    (`${VAR}`). Uma senha real contra `db.prod.internal` passa e é reportada."""
+    return not is_obvious_fake(uri)
+
+
+def _dotenv_valor_real(value: str) -> bool:
+    """Valor SEM aspas de `.env` é segredo, ou template/ref de shell?
+
+    Com o `$` de volta na classe do valor (senha com cifrão), reintroduz-se o risco do
+    template — este validador o barra: `${VAR}` e `$VAR` cru são a receita do segredo,
+    não o segredo. Qualquer outra coisa (`Xk9$abc…`) passa."""
+    if is_obvious_fake(value):
+        return False
+    return re.fullmatch(r"\$\{?[A-Za-z_][\w]*\}?", value) is None
+
+
+def _env_quoted_e_segredo(value: str) -> bool:
+    """Valor ENTRE aspas de `.env` (pode ter espaço) parece segredo?
+
+    Aceita passphrase de várias palavras desde que ALGUM token pareça aleatório
+    (alta entropia, hex, ou 3+ classes de caractere). Reprova placeholder/template e
+    frases-instrução (`please generate a random string`)."""
+    if is_obvious_fake(value) or looks_like_placeholder(value):
+        return False
+    return any(
+        len(tok) >= 8
+        and (is_high_entropy(tok) or _HEX_SECRET.match(tok) or _num_char_classes(tok) >= 3)
+        for tok in value.split()
+    )
+
+
+def _config_valor_real(value: str) -> bool:
+    """Valor SEM aspas de arquivo de configuração parece segredo?
+
+    Reusa o piso multi-sinal da genérica (`looks_like_secret_value`: reprova hash de
+    senha bcrypt/argon2, valor com espaço, identificador legível) e barra a mais os
+    refs de template/YAML-tag (`${VAR}`, `!Ref`, `$VAR`) que só aparecem em config."""
+    if value[:1] in "$!":
+        return False
+    if is_obvious_fake(value) or looks_like_placeholder(value):
+        return False
+    # Formas ESTRUTURAIS de não-segredo (caminho/versão/cipher-suite/header/enum) só
+    # aparecem sem aspas em config e disparavam HIGH pelo ramo "3 classes". Barra-as ANTES,
+    # mas só no regime de BAIXA entropia — um segredo real de alta entropia (o caso config
+    # `Xk9E…oDM1` do corpus FN) é aceito pelo ramo de entropia e nunca é uma dessas formas.
+    if not is_high_entropy(value) and _e_forma_estrutural_nao_segredo(value):
+        return False
+    return looks_like_secret_value(value)

@@ -60,10 +60,13 @@ O Guardião foi feito para os dois momentos:
 | `doppler-token` | Token pessoal do Doppler (`dp.pt.`) — gestor de segredos | 🔴 Crítica | A02 · CWE-798 |
 | `linear-api-key` | Chave de API pessoal do Linear (`lin_api_`) | 🟠 Alta | A07 · CWE-798 |
 | `slack-token` / `slack-webhook` | Token/Webhook do Slack | 🟠/🟡 | A02/A01 |
-| `db-connection-uri` | URI de banco com `usuário:senha` (usuário pode ser vazio: `redis://:senha@host`) | 🟠 Alta | A02 · CWE-798 |
+| `db-connection-uri` | URI de banco/serviço com `usuário:senha` — Postgres/MySQL/MariaDB/MSSQL/Mongo/Redis/AMQP/SMTP, prefixo `jdbc:` e sufixo `+driver`; usuário pode ser vazio (`redis://:senha@host`) | 🟠 Alta | A02 · CWE-798 |
 | `basic-auth-url` | Credencial embutida em URL | 🟡 Média | A07 · CWE-522 |
 | `jwt` | JSON Web Token no código | 🟡 Média | A07 · CWE-522 |
 | `dotenv-assignment` | Valor **sem aspas** atribuído a chave sensível em `.env`/`.envrc`/`*.env` | 🟠 Alta | A02 · CWE-798 |
+| `dotenv-quoted` | Valor **entre aspas** (inclusive passphrase com espaço) em `.env`/`.envrc`/`*.env` | 🟠 Alta | A02 · CWE-798 |
+| `config-file-secret` | Credencial **sem aspas** em arquivo de configuração (YAML de k8s/compose/Helm, `.properties`, `.cnf`/`.ini`, `settings.xml`/`web.config`, `.npmrc`, `netrc`) | 🟠 Alta | A02 · CWE-798 |
+| `pgpass-credential` | Senha no 5º campo de um `.pgpass` (`host:porta:db:usuário:senha`) | 🟠 Alta | A02 · CWE-798 |
 | `generic-assignment` | Valor atribuído a chave sensível (`DB_PASSWORD`, `JWT_SECRET`, `apiKey`…) | 🟡 Média | A02 · CWE-798 |
 | `high-entropy-string` | Cadeia aleatória de 24+ chars perto de contexto de segredo | 🟡 Média | A02 · CWE-798 |
 | `secret-in-path` | Cadeia de alta entropia embutida num caminho/URL (vaza em logs, referrer, histórico do navegador) | 🟡 Média | A02 · CWE-798 |

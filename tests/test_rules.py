@@ -63,7 +63,12 @@ CASOS_POSITIVOS: list[tuple[str, str, str]] = [
     ("x.pem", PRIVATE_KEY_HEADER, "private-key"),
     ("x.py", 'api_key = "S3cr3tP4ssw0rdX9zQvB"', "generic-assignment"),
     (".env", f"DB_PASSWORD={SENHA_DE_PRODUCAO}", "dotenv-assignment"),
-    ("x.yml", "api_token: Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF", "high-entropy-string"),
+    (".env", 'GPG_PASSPHRASE="Xk9Q2mNpR7wLvB3 correcthorsebattery"', "dotenv-quoted"),
+    ("values.yaml", "  password: Xk9Q2mNpR7wLvB3cD5", "config-file-secret"),
+    (".pgpass", "db.internal:5432:app:app:Xk9Q2mNpR7wLvB3", "pgpass-credential"),
+    # entropia solta perto de contexto de segredo, fora de arquivo de config (senão a
+    # `config-file-secret`, mais específica, ganharia o dedup):
+    ("x.txt", "api_token: Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF", "high-entropy-string"),
     # segredo embutido num SEGMENTO de path, SEM palavra de contexto na linha (o F-007):
     ("x.txt", 'ref = "/_internal/U0LEqt9hjzO6G66Um7COr4bIDt6cLxZ9/intel"', "secret-in-path"),
     ("x.txt", f"meu cpf: {CPF_VALIDO}", "cpf"),

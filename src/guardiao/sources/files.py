@@ -40,6 +40,11 @@ def _walk(root: Path, raiz_real: Path, config: Config, skipped: dict[str, int]) 
             continue
         for entry in entries:
             if not _contido_na_raiz(entry, raiz_real):
+                # Link/junction/`..` que RESOLVE para FORA da raiz pedida: não seguir (seguir
+                # poderia varrer o disco inteiro pela cauda de um symlink), mas CONTAR o pulo —
+                # silenciar reportaria "nada encontrado" enquanto o segredo do alvo do link fica
+                # invisível, e um `mklink /J` para fora não apareceria em lugar nenhum.
+                skipped["fora-da-raiz"] = skipped.get("fora-da-raiz", 0) + 1
                 continue
             if entry.is_dir():
                 if _skip_dir(entry, config):
@@ -157,6 +162,41 @@ def _tem_assinatura_binaria(raw: bytes) -> bool:
     return any(head.startswith(sig) for sig in _ASSINATURAS_BINARIAS)
 
 
+#: Bytes que contam como TEXTO num dos planos do UTF-16 (ASCII imprimível + espaços em
+#: branco usuais). Um plano de texto real é quase todo composto por eles.
+_BYTES_DE_TEXTO: frozenset[int] = frozenset(range(0x20, 0x7F)) | frozenset(b"\t\n\r\f\v")
+
+
+def _detecta_utf16_sem_bom(raw: bytes) -> str | None:
+    """UTF-16 (LE/BE) escrito SEM BOM — devolve o codec, ou ``None``.
+
+    O PowerShell ISE e alguns editores gravam UTF-16 sem BOM: o texto ASCII vira um
+    byte de dado intercalado com um ``\\x00`` a cada 2 bytes. A heurística de NUL o
+    trataria como binário e o segredo passaria batido (cegueira de encoding). A
+    assinatura é forte e barata: num dos dois planos (índices pares OU ímpares) quase
+    TODO byte é ``\\x00``, e no OUTRO quase todo byte é texto ASCII imprimível. Nenhum
+    binário real (que tem NUL espalhado, não alternado) casa esse padrão — por isso o
+    limiar é 90%, para não decodificar errado um binário mal-nomeado como texto."""
+    amostra = raw[:8192]
+    if len(amostra) < 16 or b"\x00" not in amostra:
+        return None
+    n = len(amostra) - (len(amostra) % 2)
+    pares = n // 2
+    if pares == 0:
+        return None
+
+    def _classifica(plano_nul: bytes, plano_texto: bytes) -> bool:
+        nuls = sum(1 for b in plano_nul if b == 0)
+        texto = sum(1 for b in plano_texto if b in _BYTES_DE_TEXTO)
+        return nuls * 10 >= pares * 9 and texto * 10 >= pares * 9
+
+    if _classifica(amostra[1:n:2], amostra[0:n:2]):
+        return "utf-16-le"  # dado nos pares, NUL nos ímpares
+    if _classifica(amostra[0:n:2], amostra[1:n:2]):
+        return "utf-16-be"  # dado nos ímpares, NUL nos pares
+    return None
+
+
 def decode_text_bytes(raw: bytes) -> str | None:
     """Decodifica bytes de arquivo em texto, ou ``None`` se parecer binário.
 
@@ -177,6 +217,9 @@ def decode_text_bytes(raw: bytes) -> str | None:
                 break
     if _tem_assinatura_binaria(raw):
         return None
+    codec_utf16 = _detecta_utf16_sem_bom(raw)
+    if codec_utf16 is not None:
+        return raw.decode(codec_utf16, errors="replace")
     if b"\x00" in raw[:8192]:
         return None
     return raw.decode("utf-8", errors="replace")
