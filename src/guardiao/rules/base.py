@@ -43,6 +43,13 @@ class Rule:
     keywords: tuple[str, ...] = field(default_factory=tuple)
     validator: Callable[[str], bool] | None = None
     only_files: tuple[str, ...] = field(default_factory=tuple)
+    #: O valor casado é uma cadeia COMPOSTA (URI, connection string) em que o segredo
+    #: está embutido junto de partes não-secretas (host, nome do banco). O filtro
+    #: genérico de placeholder por SUBSTRING (``looks_like_placeholder``) foi feito para
+    #: valores atômicos e dispara errado aqui — um host ``db.prod.internal/sample_reports``
+    #: contém ``sample`` sem ser exemplo. Quando ``True``, o motor pula esse filtro e
+    #: delega ao ``validator`` a decisão de real-vs-exemplo (que parseia a estrutura).
+    composto: bool = False
 
 
 def compile_rule(
@@ -61,6 +68,7 @@ def compile_rule(
     keywords: tuple[str, ...] = (),
     validator: Callable[[str], bool] | None = None,
     only_files: tuple[str, ...] = (),
+    composto: bool = False,
 ) -> Rule:
     return Rule(
         id=id,
@@ -76,4 +84,5 @@ def compile_rule(
         keywords=keywords,
         validator=validator,
         only_files=only_files,
+        composto=composto,
     )
