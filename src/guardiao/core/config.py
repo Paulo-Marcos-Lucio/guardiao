@@ -11,10 +11,26 @@ from pathlib import PurePath
 # (chave de fornecedor, PEM, dotenv, secret-in-path) num teste continua importante:
 # o F-007 do ledger vive num `test_*.py`. Cobre tests/, test_x.py, x_test.py,
 # conftest.py, locustfile.py e specs de JS (*.spec.*, *.test.*).
-_TEST_DIR_SEGMENTS: frozenset[str] = frozenset({"tests", "test", "__tests__", "testing"})
+_TEST_DIR_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "tests",
+        "test",
+        "__tests__",
+        "testing",
+        "testdata",
+        "test-fixtures",
+        "fixtures",
+        "spec",
+        "specs",
+    }
+)
 _TEST_FILE_RE = re.compile(
     r"(?:^test_.*\.py$|^.*_test\.py$|^conftest\.py$|^locustfile\.py$"
-    r"|^.*\.(?:test|spec)\.[jt]sx?$|^test_.*\.(?:js|ts)$)",
+    r"|^.*\.(?:test|spec)\.[jt]sx?$|^test_.*\.(?:js|ts)$"
+    # FP-C6: arquivos de teste de outras linguagens tambem sao teste. Go `x_test.go`,
+    # Java `XTest.java`/`XTests.java`/`XIT.java`, Ruby `x_spec.rb`/`x_test.rb`, C# `XTests.cs`.
+    r"|^.*_test\.go$|^.*(?:Test|Tests|IT)\.java$|^.*_(?:spec|test)\.rb$"
+    r"|^.*Tests?\.cs$|^.*\.(?:spec|test)\.rb$)",
     re.IGNORECASE,
 )
 

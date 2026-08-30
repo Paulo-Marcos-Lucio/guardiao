@@ -17,9 +17,12 @@ from guardiao.core.redaction import redact, redact_spans
 from guardiao.rules.base import Rule
 from guardiao.rules.definitions import (
     HASH_CONTEXT,
+    PUBLIC_KEY_CONTEXT,
     is_probable_hash_or_id,
+    linha_tem_hash_cripto,
     looks_like_placeholder,
     looks_like_secret_token,
+    tem_letra_nao_ascii,
 )
 from guardiao.rules.registry import all_rules
 from guardiao.sources.files import iter_files, read_text
@@ -27,10 +30,27 @@ from guardiao.sources.githistory import iter_history_blobs
 
 _ALLOW_MARKERS = ("guardiao:allow", "guardiao: allow", "pragma: allowlist secret")
 
-#: Regras HEURÍSTICAS (sem formato de fornecedor) cuja severidade é rebaixada em
-#: arquivos de teste — sinal SUAVE, não skip. As regras de FORMATO (secret-in-path,
-#: dotenv, tokens de fornecedor, PEM, connection-uri) ficam IMUNES: um segredo de
-#: formato num teste continua sendo um segredo (o F-007 do ledger mora num teste).
+#: Regras de ENTROPIA cujo ruído domina um bundle minificado (hash de chunk, nome de
+#: variável minificado): puladas só em arquivo minificado de linha única — as regras de
+#: FORMATO (ghp_/AKIA/sk_live) e a genérica por keyword continuam valendo (FP-08).
+_RUIDO_EM_MINIFICADO = frozenset({"high-entropy-string", "secret-in-path"})
+_EXT_MINIFICAVEL = frozenset({".js", ".mjs", ".cjs", ".css"})
+
+
+def _e_minificado(path: str, text: str) -> bool:
+    """Arquivo .js/.css minificado? Poucas linhas + longo, ou alguma linha muito longa —
+    a assinatura de um bundle (hash de chunk, variáveis minificadas) cujo ruído de
+    entropia é falso positivo (FP-08)."""
+    if PurePath(path).suffix.lower() not in _EXT_MINIFICAVEL:
+        return False
+    corpo = text.strip()
+    linhas = corpo.split("\n")
+    if len(linhas) <= 3 and len(corpo) > 500:
+        return True
+    return max((len(linha) for linha in linhas), default=0) > 400
+
+
+#: Regras HEURISTICAS rebaixadas (nao skip) em arquivos de teste; regras de FORMATO imunes.
 _DEMOTABLE_IN_TESTS: frozenset[str] = frozenset({"generic-assignment", "high-entropy-string"})
 
 
@@ -57,8 +77,25 @@ _PEM_FECHA_RE = re.compile(r"^-{5}END [A-Z0-9 ]+-{5}\s*$")
 #: Linha inteira de base64 contíguo, fora de bloco delimitado (blob solto, objeto Git).
 _CORPO_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]{40,}={0,2}$")
 
+#: Junção de dois literais de string por `+` (`"AKIA" + "…"`, `'a' + 'b'`): a evasão
+#: trivial de quebrar um segredo em pedaços para escapar da regex. Removê-la reconstrói
+#: o valor contíguo. Só casa literal-com-literal (aspa antes E depois do `+`), nunca
+#: `"x" + var` — que juntaria texto não-secreto.
+_CONCAT_LITERAIS_RE = re.compile(r"""["']\s*\+\s*["']""")
+
 #: Alfabeto base64/base64url (sem o `/`, tratado à parte como possível delimitador).
 _B64URL_SEM_BARRA = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+=_-")
+
+#: Alfabeto base64 padrão INCLUINDO `/` — para medir o comprimento de um blob contíguo.
+_B64_COM_BARRA = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+
+#: A partir de que comprimento uma corrida contígua de base64-com-barra é um BLOB (payload
+#: codificado: DKIM `p=…`, chave pública, dado binário) e não um caminho `/a/token/b`.
+_MIN_BLOB_BASE64 = 64
+
+
+def _e_letra_nao_ascii(c: str) -> bool:
+    return ord(c) > 127 and c.isalpha()
 
 
 def _barra_interna_base64(raw_line: str, start: int) -> bool:
@@ -78,6 +115,27 @@ def _barra_interna_base64(raw_line: str, start: int) -> bool:
     if vistos == 0 or i < 0:
         return False  # `/` logo após não-base64, ou segmento cola no início: path limpo
     return raw_line[i] in "\"'"
+
+
+def _barra_interna_de_blob(raw_line: str, start: int) -> bool:
+    """A `/` em ``raw_line[start-1]`` é interna a um BLOB base64 (não delimitador de path)?
+
+    Dois casos: (1) o segmento anterior é fechado por aspas (`opaque="FQhe/qaU…"`); (2) a
+    corrida contígua de base64-com-barra em volta da `/` é longa (≥ :data:`_MIN_BLOB_BASE64`)
+    — DKIM `p=…`, chave pública sem prefixo reconhecido, dado binário. Um caminho real
+    (`/_internal/<token>/intel`) tem o `_` fora do alfabeto base64 e não forma corrida longa.
+    """
+    if _barra_interna_base64(raw_line, start):
+        return True
+    barra = start - 1
+    esq = barra
+    while esq >= 0 and raw_line[esq] in _B64_COM_BARRA:
+        esq -= 1
+    dir_ = barra
+    n = len(raw_line)
+    while dir_ < n and raw_line[dir_] in _B64_COM_BARRA:
+        dir_ += 1
+    return (dir_ - esq - 1) >= _MIN_BLOB_BASE64
 
 
 #: Caminho SINTÉTICO: a unidade não veio de um arquivo com nome (blob órfão do
@@ -141,6 +199,35 @@ _HASH_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Contexto de valor PÚBLICO na linha (chave pública, JWKS, pk_live/site_key): a alta
+# entropia ali é publicável por design, não credencial (FP-02).
+_PUBKEY_CONTEXT_RE = re.compile("|".join(re.escape(k) for k in PUBLIC_KEY_CONTEXT), re.IGNORECASE)
+
+# Blob base64 PÚBLICO na linha: chave SSH pública (`ssh-rsa AAAA…`), data-URI
+# (`data:image/png;base64,…`) ou cabeçalho PEM público/certificado embutido numa string
+# (com `\n` literal, então o rastreio de bloco PEM multi-linha não pega). O alfabeto base64
+# tem `/`, e `secret-in-path` lia cada barra desses blobs como um segmento de path — um
+# `authorized_keys` ou uma fonte-ícone rendia dezenas de "segredos" (FP-01, a classe dos
+# ~98,6% de FP no terraform-aws). Só as regras de ENTROPIA são neutralizadas: um `AKIA…`,
+# um `ghp_…` ou o cabeçalho de chave PRIVADA continuam pegos por prefixo.
+_SSH_PUBKEY_RE = re.compile(
+    r"\b(?:ssh-(?:rsa|ed25519|dss)|ecdsa-sha2-nistp\d+)\s+[A-Za-z0-9+/]{40,}"
+)
+_DATA_URI_B64_RE = re.compile(r"data:[\w.+/-]*;base64,[A-Za-z0-9+/]{20,}", re.IGNORECASE)
+_PEM_PUBLICO_INLINE_RE = re.compile(
+    r"-{5}BEGIN (?:PUBLIC KEY|CERTIFICATE|RSA PUBLIC KEY|EC PUBLIC KEY|PGP PUBLIC KEY BLOCK|DSA PUBLIC KEY|CERTIFICATE REQUEST)-{5}"
+)
+
+
+def _e_blob_base64_publico(raw_line: str) -> bool:
+    """A linha carrega um blob base64 PÚBLICO (chave SSH pública, data-URI, PEM público
+    inline)? Nesse caso as barras internas do blob NÃO são delimitadores de path."""
+    return bool(
+        _SSH_PUBKEY_RE.search(raw_line)
+        or _DATA_URI_B64_RE.search(raw_line)
+        or _PEM_PUBLICO_INLINE_RE.search(raw_line)
+    )
+
 
 @dataclass
 class ScanResult:
@@ -197,6 +284,7 @@ class Scanner:
         contadores = {} if contadores is None else contadores
         rules = self._rules_for(path, text)
         em_teste = self.config.demote_tests and self.config.is_test_path(path)
+        minificado = _e_minificado(path, text)
         dentro_de_pem = False
         for lineno, line in enumerate(text.split("\n"), start=1):
             raw_line = line.removesuffix("\r")  # conta linhas só por \n (igual ao editor/GitHub)
@@ -219,10 +307,17 @@ class Scanner:
             # virtualenv tem esse arquivo. Só as regras de ENTROPIA são neutralizadas:
             # as de fornecedor (`AKIA…`, `ghp_…`) e a de chave privada casam por prefixo
             # ou pelo cabeçalho `-----BEGIN…`, que continuam sendo lidos normalmente.
-            payload_codificado = dentro_de_pem or _e_corpo_base64(raw_line)
+            payload_codificado = (
+                dentro_de_pem
+                or _e_corpo_base64(raw_line)
+                or _e_blob_base64_publico(raw_line)
+                or linha_tem_hash_cripto(raw_line)
+            )
             for rule in rules:
                 if payload_codificado and rule.category == "entropy":
                     continue
+                if minificado and rule.id in _RUIDO_EM_MINIFICADO:
+                    continue  # bundle .js/.css de 1 linha: hash de chunk/var minificada (FP-08)
                 keyword_re = _keyword_pattern(rule.keywords)
                 if keyword_re is not None and keyword_re.search(raw_line) is None:
                     continue
@@ -234,7 +329,9 @@ class Scanner:
                     secret = match.group(group)
                     if secret is None:
                         continue
-                    if looks_like_placeholder(secret):
+                    if not rule.composto and looks_like_placeholder(secret):
+                        # Regra COMPOSTA (URI/connection string): o filtro por substring
+                        # dispara errado no host/nome-do-banco — quem julga é o validator.
                         contadores["placeholder"] = contadores.get("placeholder", 0) + 1
                         continue
                     if rule.validator is not None and not rule.validator(secret):
@@ -244,10 +341,15 @@ class Scanner:
                         continue
                     start = match.start(group)
                     if rule.category == "entropy":
+                        fim = start + len(secret)
+                        if (start > 0 and _e_letra_nao_ascii(raw_line[start - 1])) or (
+                            fim < len(raw_line) and _e_letra_nao_ascii(raw_line[fim])
+                        ):
+                            continue  # colado a letra acentuada: é palavra natural, não token (FP-07)
                         # Aceitação multi-sinal: entropia por-alfabeto OU
                         # impronunciabilidade (blob MAIÚSCULO aleatório que o limiar de
                         # entropia subestima). Segmento de path aleatório entra por aqui.
-                        if not looks_like_secret_token(secret):
+                        if not looks_like_secret_token(secret) or tem_letra_nao_ascii(secret):
                             continue
                         if is_probable_hash_or_id(secret):
                             continue  # UUID / SHA-1 de commit / pin não são segredos
@@ -256,7 +358,7 @@ class Scanner:
                         if (
                             start >= 2
                             and raw_line[start - 1] == "/"
-                            and _barra_interna_base64(raw_line, start)
+                            and _barra_interna_de_blob(raw_line, start)
                         ):
                             # `/` DENTRO de um base64 entre aspas (`opaque="FQhe/qaU…"`) não é
                             # delimitador de path — o token inteiro é um valor, não uma URL.
@@ -264,10 +366,24 @@ class Scanner:
                             # fronteira à esquerda do segmento anterior: aspas ⇒ valor; `/` ⇒ path.
                             continue
                         if contexto_de_hash is None:
-                            contexto_de_hash = _HASH_CONTEXT_RE.search(raw_line) is not None
+                            contexto_de_hash = (
+                                _HASH_CONTEXT_RE.search(raw_line) is not None
+                                or _PUBKEY_CONTEXT_RE.search(raw_line) is not None
+                            )
                         if contexto_de_hash:
-                            continue  # 'md5'/'etag'/'integrity' na linha: é digest, não credencial
+                            continue  # digest ('md5'/'etag') ou chave PÚBLICA (jwks/pk_live): não é credencial
                     hits.append((rule, start, secret, entropy))
+
+            # Evasão por concatenação: `KEY = "AKIA" + "…"`. Reconstrói o valor unido e
+            # reporta só o que a JUNÇÃO forma (e que não existia contíguo na linha) — corre
+            # ANTES do corte por `hits` vazio, porque é justamente a linha sem achado normal
+            # (o segredo foi partido) que a evasão explora.
+            if "+" in raw_line and _CONCAT_LITERAIS_RE.search(raw_line):
+                juntada = _CONCAT_LITERAIS_RE.sub("", raw_line)
+                yield from self._hits_de_concatenacao(
+                    rules, path, juntada, raw_line, lineno, commit
+                )
+
             if not hits:
                 continue
 
@@ -303,6 +419,55 @@ class Scanner:
                     recommendation=rule.recommendation,
                 )
 
+    def _hits_de_concatenacao(
+        self,
+        rules: list[Rule],
+        path: str,
+        linha: str,
+        original: str,
+        lineno: int,
+        commit: str | None,
+    ) -> Iterator[Finding]:
+        """Achados de FORMATO no valor reconstruído de uma concatenação de literais.
+
+        Só regras de formato/fornecedor (entropia solta em código concatenado é ruído) e
+        só o segredo que a junção FORMOU — ``secret in original`` significa que já estava
+        contíguo e já foi reportado no passe normal, então é descartado para não duplicar.
+        """
+        for rule in rules:
+            if rule.category == "entropy":
+                continue
+            keyword_re = _keyword_pattern(rule.keywords)
+            if keyword_re is not None and keyword_re.search(linha) is None:
+                continue
+            for match in rule.regex.finditer(linha):
+                secret = match.group(rule.secret_group)
+                if secret is None or secret in original:
+                    continue
+                if not rule.composto and looks_like_placeholder(secret):
+                    continue
+                if rule.validator is not None and not rule.validator(secret):
+                    continue
+                entropy = shannon_entropy(secret)
+                if rule.min_entropy is not None and entropy < rule.min_entropy:
+                    continue
+                start = match.start(rule.secret_group)
+                preview = redact_spans(linha, [(start, start + len(secret), secret)])
+                yield Finding(
+                    rule_id=rule.id,
+                    title=rule.title,
+                    severity=rule.severity,
+                    location=Location(path=path, line=lineno, column=start + 1, commit=commit),
+                    secret=secret,
+                    redacted=redact(secret),
+                    line_preview=preview,
+                    entropy=round(entropy, 2),
+                    cwe=rule.cwe,
+                    owasp=rule.owasp,
+                    category=rule.category,
+                    recommendation=rule.recommendation,
+                )
+
     def _rules_for(self, path: str, text: str) -> list[Rule]:
         """Regras válidas para esta unidade (algumas só valem em `.env` e afins).
 
@@ -316,8 +481,15 @@ class Scanner:
         if not any(rule.only_files for rule in self.rules):
             return self.rules
         if _CAMINHO_SINTETICO_RE.match(path):
+            baixo = path.lower()
+            if any(m in baixo for m in ("example", "sample", "template", ".dist")):
+                return [r for r in self.rules if not r.only_files]  # blob de arquivo de exemplo
             if _parece_dotenv(text):
                 return self.rules
+            return [r for r in self.rules if not r.only_files]
+        if any(m in path.lower() for m in ("example", "sample", "template", ".dist")):
+            # Arquivo de EXEMPLO (por nome, em qualquer ponto do caminho ou descritor de
+            # histórico): `CHAVE=valor` ali é documentação, não vazamento (FP-05).
             return [r for r in self.rules if not r.only_files]
         nome = PurePath(path).name.lower()
         return [r for r in self.rules if not r.only_files or _nome_casa(nome, r.only_files)]
@@ -420,6 +592,10 @@ def _dedupe_overlapping(
             -h[0].severity.rank,
             h[0].category == "entropy",
             h[0].id == "high-entropy-string",
+            # `config-file-secret` é o fallback largo de config (qualquer `chave: valor`):
+            # perde o empate para a regra canônica do formato — `dotenv-assignment` num
+            # `.env`, um segredo de fornecedor — mantendo o rótulo mais informativo.
+            h[0].id == "config-file-secret",
             h[0].id,
         ),
     )

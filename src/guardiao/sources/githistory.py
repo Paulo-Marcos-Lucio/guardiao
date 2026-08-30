@@ -135,6 +135,17 @@ def iter_history_blobs(
     if _e_clone(repo):
         declarados.append(AVISO_CLONE)
 
+    # 0c) NOMES de ref (branch/tag) — um segredo colado no nome de um branch
+    #     (`hotfix/token-ghp_…`) ou de uma tag leve vive só em `refs/`, não em blob nem
+    #     em mensagem: nenhuma das varreduras abaixo o alcança. O NOME vai no texto (que
+    #     o preview oculta); o caminho é genérico para o próprio laudo não vazar o segredo.
+    refs = _run(repo, "for-each-ref", "--format=%(refname)")
+    if refs.ok:
+        for refname in refs.out.splitlines():
+            refname = refname.strip()
+            if refname:
+                yield Blob(sha="", path="<nome de branch/tag>", text=refname)
+
     # 1) Mapa sha->path (o primeiro caminho visto para cada blob). Uma chamada só.
     listing = _run(repo, "rev-list", "--objects", "--all")
     if not listing.ok:
