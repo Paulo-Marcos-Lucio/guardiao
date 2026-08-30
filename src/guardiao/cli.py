@@ -169,6 +169,14 @@ def scan(
         "--permitir-shallow",
         help="Aceita rodar --git-history em clone raso (o histórico varrido fica incompleto).",
     ),
+    jobs: int = typer.Option(
+        os.cpu_count() or 1,
+        "--jobs",
+        min=1,
+        help="Paralelismo (processos) da varredura. Default: nº de CPUs desta máquina. "
+        "1 desliga o paralelismo (caminho sequencial original) — útil para depurar ou "
+        "em ambiente com poucos núcleos, onde o custo de subprocesso não compensa.",
+    ),
     baseline: Path | None = typer.Option(
         None, "--baseline", help="Suprime achados presentes neste baseline."
     ),
@@ -219,12 +227,14 @@ def scan(
 
     if git_history:
         try:
-            result = scanner.scan_git_history(targets[0], permitir_shallow=permitir_shallow)
+            result = scanner.scan_git_history(
+                targets[0], permitir_shallow=permitir_shallow, jobs=jobs
+            )
         except GitError as exc:
             err_console.print("[red]Não foi possível ler o histórico Git:[/]", txt(exc))
             raise typer.Exit(2) from exc
     else:
-        result = scanner.scan_paths(targets)
+        result = scanner.scan_paths(targets, jobs=jobs)
 
     if update_baseline:
         target = baseline or Path(".guardiao-baseline.json")
