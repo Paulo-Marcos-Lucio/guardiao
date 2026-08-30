@@ -40,6 +40,11 @@ def _walk(root: Path, raiz_real: Path, config: Config, skipped: dict[str, int]) 
             continue
         for entry in entries:
             if not _contido_na_raiz(entry, raiz_real):
+                # Link/junction/`..` que RESOLVE para FORA da raiz pedida: não seguir (seguir
+                # poderia varrer o disco inteiro pela cauda de um symlink), mas CONTAR o pulo —
+                # silenciar reportaria "nada encontrado" enquanto o segredo do alvo do link fica
+                # invisível, e um `mklink /J` para fora não apareceria em lugar nenhum.
+                skipped["fora-da-raiz"] = skipped.get("fora-da-raiz", 0) + 1
                 continue
             if entry.is_dir():
                 if _skip_dir(entry, config):

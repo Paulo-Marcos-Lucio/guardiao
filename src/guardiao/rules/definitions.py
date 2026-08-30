@@ -498,10 +498,17 @@ def default_rules() -> list[Rule]:
             # `(?:jdbc:)?` cobre o prefixo do driver Java (`jdbc:postgresql://`,
             # `jdbc:mariadb://…`); os esquemas `mariadb`/`mssql`/`sqlserver`/`smtp` são
             # tão comuns quanto os já listados e têm o MESMO formato `user:senha@host`.
+            # `oracle`/`snowflake`/`clickhouse`/`cassandra` (e dialetos SQLAlchemy afins) são
+            # bancos de porte igual aos demais e tinham a senha embutida passando batida.
+            # O `_` na classe do sufixo cobre o driver `oracle+cx_oracle`. A 2ª alternativa
+            # cobre a forma THIN do Oracle (esquema `oracle:thin:`, com `usuário/senha` antes
+            # do `@` e SEM o `://`) — é por não ter `://` que ela não casa a 1ª forma.
             r"\b((?:jdbc:)?(?:postgres|postgresql|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss"
-            r"|amqp|amqps|mssql|sqlserver|smtp|smtps)"
-            r"(?:\+[a-z0-9]+)?://"
-            r"[^:@\s/]*:[^@\s/]+@[^\s'\"<>]+)",
+            r"|amqp|amqps|mssql|sqlserver|smtp|smtps|oracle|snowflake|clickhouse|cassandra"
+            r"|cockroachdb|db2|vertica|presto|trino)"
+            r"(?:\+[a-z0-9_]+)?://"
+            r"[^:@\s/]*:[^@\s/]+@[^\s'\"<>]+"
+            r"|(?:jdbc:)?oracle:thin:[^/@\s]+/[^@\s]+@[^\s'\"<>]+)",
             secret_group=1,
             composto=True,
             validator=_uri_conexao_e_vazamento,
@@ -904,6 +911,46 @@ def _num_char_classes(value: str) -> int:
     )
 
 
+#: Caminho de filesystem (POSIX absoluto, drive do Windows, UNC ou relativo `./`/`../`).
+#: Num arquivo de config, `secret: /etc/app/tls/server.key` é o caminho de UM segredo, não
+#: o segredo — a barra/contrabarra inicial é a assinatura estrutural.
+_CAMINHO_FS = re.compile(r"^(?:/|[A-Za-z]:[\\/]|\\\\|\.{1,2}/)")
+#: Versão semver (`v2.14.3-alpine`, `1.2.0`): número.número no início.
+_SEMVER = re.compile(r"^v?\d+\.\d+(?:[.\-+]|$)")
+#: Enum/identificador segmentado: 2+ segmentos alfanuméricos unidos por `.` `:` `_` `-`
+#: (`TLSv1.3-AES256-SHA`, `HS256-RS512-mix`, `X-Company-ApiKey`). Um cipher-suite, nome de
+#: header ou algoritmo se decompõe assim; um blob base64/hex aleatório, não (e ele já é de
+#: alta entropia, tratado antes).
+_ENUM_SEGMENTADO = re.compile(r"^[A-Za-z0-9]+(?:[.:_\-][A-Za-z0-9]+)+$")
+
+
+def _e_forma_estrutural_nao_segredo(value: str) -> bool:
+    """O valor tem FORMA estrutural de não-segredo (caminho / versão / enum legível)?
+
+    CAUSA-RAIZ da regressão de recall em `config-file-secret`: em arquivo de config o valor
+    vem SEM aspas, então caminho (`/etc/app/tls/server.key`), versão (`v2.14.3-alpine`) e
+    cipher-suite/header/algoritmo (`TLSv1.3-AES256-SHA`, `X-Company-ApiKey`, `HS256-RS512-mix`)
+    caíam no ramo "3 classes de caractere" de :func:`looks_like_secret_value` e viravam HIGH.
+    O discriminante é a ESTRUTURA, não a entropia: essas formas se decompõem em segmentos
+    curtos/legíveis; um segredo real de alta entropia NÃO é uma delas (e é aceito antes, pelo
+    ramo de entropia). Usado só no regime de baixa entropia, então não cega segredo real."""
+    if _CAMINHO_FS.match(value) or _SEMVER.match(value):
+        return True
+    # A decomposição em enum/identificador só faz sentido quando há SEPARADOR real
+    # (`-` `_` `.` `:`). Um blob contínuo de letras/dígitos (`Xk9AAAAAAAaAA`) é a forma de
+    # um SEGREDO, não de um enum — e não pode ser cegado por uma leitura camelCase forçada.
+    if not any(c in value for c in "-_.:"):
+        return False
+    if _parece_identificador_de_codigo(value):
+        return True  # `X-Company-ApiKey`: segmentos são palavras legíveis
+    if _ENUM_SEGMENTADO.match(value):
+        segmentos = re.split(r"[.:_\-]", value)
+        # cipher-suite/algoritmo: todos os segmentos são curtos (≤8) — estrutura de enum,
+        # não a cauda longa e contínua de um token aleatório.
+        return len(segmentos) >= 2 and all(len(s) <= 8 for s in segmentos)
+    return False
+
+
 def _proporcao_vogais(token: str) -> float:
     vogais = sum(1 for c in token.lower() if c in "aeiou")
     return vogais / len(token) if token else 0.0
@@ -1095,5 +1142,11 @@ def _config_valor_real(value: str) -> bool:
     if value[:1] in "$!":
         return False
     if is_obvious_fake(value) or looks_like_placeholder(value):
+        return False
+    # Formas ESTRUTURAIS de não-segredo (caminho/versão/cipher-suite/header/enum) só
+    # aparecem sem aspas em config e disparavam HIGH pelo ramo "3 classes". Barra-as ANTES,
+    # mas só no regime de BAIXA entropia — um segredo real de alta entropia (o caso config
+    # `Xk9E…oDM1` do corpus FN) é aceito pelo ramo de entropia e nunca é uma dessas formas.
+    if not is_high_entropy(value) and _e_forma_estrutural_nao_segredo(value):
         return False
     return looks_like_secret_value(value)

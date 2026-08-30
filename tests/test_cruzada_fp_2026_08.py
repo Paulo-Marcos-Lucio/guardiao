@@ -81,9 +81,10 @@ def test_bundle_minificado_pula_ruido_de_entropia() -> None:
 
 # ---- Contraprova: um segredo REAL continua sendo pego (as correções não cegam) ----
 def test_segredo_real_continua_detectado() -> None:
-    assert "aws-access-key" in _ids("app.py", 'AWS_ACCESS_KEY_ID = "AKIA1234567890ABCDEF"') or _ids(
-        "app.py", 'AWS_ACCESS_KEY_ID = "AKIA1234567890ABCDEF"'
-    )
+    # PERTINÊNCIA do id REAL da regra (`aws-access-key-id`), não "disparou qualquer coisa":
+    # a versão antiga usava `"aws-access-key"` (id inexistente) `or _ids(...)`, o que degenerava
+    # para "casou alguma regra" e teria passado mesmo se a regra AWS parasse de disparar.
+    assert "aws-access-key-id" in _ids("app.py", 'AWS_ACCESS_KEY_ID = "AKIA1234567890ABCDEF"')
 
 
 def test_chave_privada_pem_inline_ainda_e_pega() -> None:
