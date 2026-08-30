@@ -208,9 +208,34 @@ Principais opções do `scan`:
 | `--baseline` / `--update-baseline` | Suprime achados conhecidos / (re)grava o baseline. |
 | `--fail-on` | `none`/`info`/`low`/`medium`/`high`/`critical` — código de saída 1 para CI. |
 | `--only` / `--skip` / `--skip-category` | Filtra regras ou categorias (ex.: `--skip-category pii`). |
+| `--gitleaks-config` | Carrega regras + allowlist de um `gitleaks.toml` real — ver [Migrando de um gitleaks.toml](#migrando-de-um-gitleakstoml). |
 | `--no-entropy` | Desliga a detecção por entropia. |
 | `--scan-lockfiles` | Também varre lockfiles/minificados (pulados por padrão). |
 | `--max-file-size` / `--max-line-length` | Tetos de varredura (padrão: 5 MB / 4.000 chars). |
+
+### Migrando de um gitleaks.toml
+
+Um `gitleaks.toml` afinado (regras próprias, allowlist de fixtures e
+segredos sintéticos) não precisa ser reescrito à mão para trocar de
+scanner. `--gitleaks-config gitleaks.toml` carrega o arquivo real: as
+regras (`id`, `regex`, `description`, `secretGroup`, `entropy`, `keywords`,
+`path`) entram na varredura como qualquer outra, e a allowlist (`paths`,
+`regexes`, `stopwords` — global em `[allowlist]` e por regra em
+`[rules.allowlist]`) suprime achados **só das regras carregadas deste
+arquivo**, sem afetar o que o Guardião já detecta por conta própria.
+
+```bash
+guardiao scan . --gitleaks-config gitleaks.toml
+```
+
+Construção do gitleaks que não tem equivalente aqui — `[extend]`,
+`[[allowlists]]` (schema novo, múltiplos allowlists nomeados),
+`condition = "AND"` num allowlist, `regexTarget`, qualquer campo fora do
+subconjunto acima — **não trava o carregamento**: vira um aviso explícito
+no relatório (`coverage_warnings` no JSON/SARIF, linha `⚠` no console).
+Quando o `condition` de um allowlist não é o `OR` padrão do gitleaks, a
+allowlist inteira é ignorada em vez de aplicada com a semântica errada —
+o viés é relatar demais, nunca suprimir um achado real por engano.
 
 ### Códigos de saída
 
