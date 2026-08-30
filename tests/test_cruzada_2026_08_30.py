@@ -82,10 +82,16 @@ def test_db_uri_oracle_e_dialetos_disparam(uri: str) -> None:
 def test_db_uri_oracle_sem_credencial_nao_dispara() -> None:
     # CONTRAPROVA: sem `user:senha@`/`user/senha@` não há vazamento — não pode disparar.
     assert "db-connection-uri" not in _ids("settings.py", 'DB_URL = "oracle://localhost/db"')
-    assert "db-connection-uri" not in _ids("settings.py", 'DB_URL = "jdbc:oracle:thin:@dbhost:1521:ORCL"')
+    assert "db-connection-uri" not in _ids(
+        "settings.py", 'DB_URL = "jdbc:oracle:thin:@dbhost:1521:ORCL"'
+    )
 
 
 def test_db_uri_postgres_mysql_sustentados() -> None:
     # SUSTENTA: os esquemas antigos seguem intactos após ampliar a alternância.
-    assert "db-connection-uri" in _ids("app.py", "postgresql+psycopg://u:S3cretP4ss@db.prod.internal/app")
-    assert "db-connection-uri" in _ids("app.py", "mysql://root:S3cretP4ssword@db.prod.internal:3306/prod")
+    assert "db-connection-uri" in _ids(
+        "app.py", "postgresql+psycopg://u:S3cretP4ss@db.prod.internal/app"
+    )
+    assert "db-connection-uri" in _ids(
+        "app.py", "mysql://root:S3cretP4ssword@db.prod.internal:3306/prod"
+    )
