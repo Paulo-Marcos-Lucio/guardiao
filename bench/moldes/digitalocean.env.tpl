@@ -1,0 +1,1 @@
+DIGITALOCEAN_TOKEN=dop_v1_{64:hex}
