@@ -166,5 +166,65 @@
   "linha": 4,
   "eh_segredo": false,
   "tipo": "exemplo-em-doc"
+ },
+ {
+  "arquivo": "negativos/login_url.py",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "whatwg-host-vazio"
+ },
+ {
+  "arquivo": "negativos/auth_url.py",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "whatwg-host-curto"
+ },
+ {
+  "arquivo": "negativos/urlencoded_value.json",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "whatwg-valor-urlencoded"
+ },
+ {
+  "arquivo": "negativos/config_identifier.py",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "identificador-de-codigo-config"
+ },
+ {
+  "arquivo": "negativos/camelcase_token.js",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "identificador-de-codigo-camelcase"
+ },
+ {
+  "arquivo": "negativos/logo_pdf_header.ai",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "binario-cabecalho-pdf"
+ },
+ {
+  "arquivo": "negativos/legacy_illustrator.ai",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "binario-cabecalho-postscript"
+ },
+ {
+  "arquivo": "negativos/digest_header.txt",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "base64-atributo-opaque"
+ },
+ {
+  "arquivo": "negativos/sri_integrity.html",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "base64-atributo-integridade-sri"
+ },
+ {
+  "arquivo": "negativos/soap_signature.xml",
+  "linha": 1,
+  "eh_segredo": false,
+  "tipo": "base64-atributo-assinatura-xml"
  }
 ]
