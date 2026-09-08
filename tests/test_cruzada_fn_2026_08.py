@@ -17,7 +17,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import looks_like_placeholder
+from guardiao.rules.definitions import _aleatoriedade_refutada, looks_like_placeholder
 from guardiao.sources.files import decode_text_bytes
 from tests.conftest import GH_TOKEN as TOKEN_GH  # ghp_ + 37 chars (formato válido)
 
@@ -131,6 +131,10 @@ def test_config_password_unquoted_dispara(corpo: str) -> None:
     documentado do filtro de placeholder), não são a propriedade sob teste."""
     senha = _senha_forte(corpo)
     assume(not looks_like_placeholder(senha))
+    # Um valor de baixa variedade (dominado por um caractere / entropia baixíssima —
+    # `Xk90000000000`) NÃO é uma senha forte: é a classe de FP que a corrida-de-consoante
+    # matou (ceph `AQBQyyyy…`). Fora do escopo desta propriedade (segredo forte dispara).
+    assume(not _aleatoriedade_refutada(senha))
     assert "config-file-secret" in _ids(f"    password: {senha}", "values.yaml")
 
 

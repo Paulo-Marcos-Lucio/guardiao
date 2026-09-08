@@ -8,10 +8,12 @@ from guardiao.core.engine import Scanner
 from guardiao.rules.definitions import OWASP_EDITION, looks_like_placeholder
 from guardiao.rules.registry import all_rules
 from tests.conftest import (
+    ANTHROPIC_KEY,
     AWS_KEY_ID,
     AWS_SECRET_KEY,
     BASIC_AUTH_URL,
     CNPJ_VALIDO,
+    CONNSTRING_SECRET,
     CPF_VALIDO,
     DB_URI,
     DIGITALOCEAN_TOKEN,
@@ -26,6 +28,7 @@ from tests.conftest import (
     MERCADOPAGO_PUBLIC_KEY,
     MERCADOPAGO_TOKEN,
     NPM_TOKEN,
+    OPENAI_KEY,
     PRIVATE_KEY_HEADER,
     SENDGRID_KEY,
     SENHA_DE_PRODUCAO,
@@ -44,6 +47,16 @@ CASOS_POSITIVOS: list[tuple[str, str, str]] = [
     ("x.txt", f'k = "{GH_TOKEN}"', "github-token"),
     ("x.txt", f'k = "{GITHUB_PAT_FG}"', "github-pat-fine-grained"),
     ("x.txt", f'k = "{GOOGLE_KEY}"', "google-api-key"),
+    # Chaves de IA disparam SEM palavra-chave de contexto na linha (bare/arg/log):
+    ("client.py", f"client = OpenAI({OPENAI_KEY!r})", "openai-api-key"),
+    ("handler.go", f'logger.Info("using {ANTHROPIC_KEY}")', "anthropic-api-key"),
+    # Senha embutida numa connection string `chave=valor;` (arquivo NÃO-config: só a
+    # regra de connection string vale; sem file-scope de `config-file-secret`):
+    (
+        "Program.cs",
+        f'var c = "Server=db;Password={CONNSTRING_SECRET};Encrypt=true";',
+        "connection-string-password",
+    ),
     ("x.txt", f'k = "{SLACK_TOKEN}"', "slack-token"),
     ("x.txt", f'url = "{SLACK_WEBHOOK}"', "slack-webhook"),
     ("x.txt", f'url = "{DB_URI}"', "db-connection-uri"),

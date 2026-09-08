@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import functools
 import re
 import time
@@ -18,10 +19,12 @@ from guardiao.rules.base import Rule
 from guardiao.rules.definitions import (
     HASH_CONTEXT,
     PUBLIC_KEY_CONTEXT,
+    is_obvious_fake,
     is_probable_hash_or_id,
     linha_tem_hash_cripto,
-    looks_like_placeholder,
     looks_like_secret_token,
+    placeholder_domina,
+    segmento_e_recurso_publico,
     tem_letra_nao_ascii,
 )
 from guardiao.rules.registry import all_rules
@@ -83,6 +86,32 @@ _PEM_FECHA_RE = re.compile(r"^-{5}END [A-Z0-9 ]+-{5}\s*$")
 
 #: Linha inteira de base64 contíguo, fora de bloco delimitado (blob solto, objeto Git).
 _CORPO_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]{40,}={0,2}$")
+
+#: Blob base64 CONTÍGUO em qualquer ponto da linha (>= 40 chars) — candidato a payload
+#: codificado que pode esconder uma chave privada PEM (o `"payload":"LS0tLS1CRUdJTi…"`).
+_BLOB_BASE64_INLINE_RE = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
+
+
+def _placeholder_suprime(rule: Rule, secret: str) -> bool:
+    """Descartar o valor casado como placeholder de exemplo?
+
+    Classe FN-P0: o antigo filtro rodava :func:`looks_like_placeholder` (substring
+    ``todo``/``mock``/``example`` em qualquer posição) em TODA regra não-composta, e assim
+    suprimia em silêncio um ``ghp_todo…`` de formato GitHub válido. Agora o filtro respeita
+    a natureza da regra:
+
+    * regra COMPOSTA (URI/connection string) — quem julga real-vs-exemplo é o validator;
+    * regra HEURÍSTICA (entropia/atribuição/config) — o marcador tem de DOMINAR o valor
+      (:func:`placeholder_domina`), nunca uma substring solta num segredo real;
+    * regra de FORMATO/fornecedor — a forma já foi travada pela regex; só um valor de
+      exemplo por INTEIRO (:func:`is_obvious_fake`) pode barrá-la.
+    """
+    if rule.composto:
+        return False
+    if rule.heuristica:
+        return placeholder_domina(secret)
+    return is_obvious_fake(secret)
+
 
 #: Junção de dois literais de string por `+` (`"AKIA" + "…"`, `'a' + 'b'`): a evasão
 #: trivial de quebrar um segredo em pedaços para escapar da regex. Removê-la reconstrói
@@ -336,9 +365,10 @@ class Scanner:
                     secret = match.group(group)
                     if secret is None:
                         continue
-                    if not rule.composto and looks_like_placeholder(secret):
-                        # Regra COMPOSTA (URI/connection string): o filtro por substring
-                        # dispara errado no host/nome-do-banco — quem julga é o validator.
+                    if _placeholder_suprime(rule, secret):
+                        # Regra de FORMATO só barra o valor de exemplo por INTEIRO;
+                        # heurística exige que o marcador DOMINE o valor — nunca uma
+                        # substring (`todo`/`mock`) perdida num segredo real (FN-P0).
                         contadores["placeholder"] = contadores.get("placeholder", 0) + 1
                         continue
                     if rule.validator is not None and not rule.validator(secret):
@@ -358,6 +388,8 @@ class Scanner:
                         # entropia subestima). Segmento de path aleatório entra por aqui.
                         if not looks_like_secret_token(secret) or tem_letra_nao_ascii(secret):
                             continue
+                        if segmento_e_recurso_publico(raw_line, secret, start, fim):
+                            continue  # slug de CDN/asset, ARN/ssoins, WWID de /dev/mapper
                         if is_probable_hash_or_id(secret):
                             continue  # UUID / SHA-1 de commit / pin não são segredos
                         if start > 0 and raw_line[start - 1] == "@":
@@ -390,6 +422,12 @@ class Scanner:
                 yield from self._hits_de_concatenacao(
                     rules, path, juntada, raw_line, lineno, commit
                 )
+
+            # Chave privada PEM escondida sob base64 (`{"payload":"LS0tLS1CRUdJTi…"}`):
+            # decodifica blobs longos e re-roda a regra de estrutura no conteúdo. Corre
+            # ANTES do corte por `hits` vazio — o cabeçalho codificado não casa regra nenhuma
+            # no passe normal, então é justamente a linha "sem achado" que o esconde (FN).
+            yield from self._chaves_privadas_codificadas(rules, path, raw_line, lineno, commit)
 
             if not hits:
                 continue
@@ -451,7 +489,7 @@ class Scanner:
                 secret = match.group(rule.secret_group)
                 if secret is None or secret in original:
                     continue
-                if not rule.composto and looks_like_placeholder(secret):
+                if _placeholder_suprime(rule, secret):
                     continue
                 if rule.validator is not None and not rule.validator(secret):
                     continue
@@ -474,6 +512,51 @@ class Scanner:
                     category=rule.category,
                     recommendation=rule.recommendation,
                 )
+
+    def _chaves_privadas_codificadas(
+        self,
+        rules: list[Rule],
+        path: str,
+        raw_line: str,
+        lineno: int,
+        commit: str | None,
+    ) -> Iterator[Finding]:
+        """Chave privada PEM escondida sob base64 (``{"payload":"LS0tLS1CRUdJTi…"}``).
+
+        A regra ``private-key`` casa só o cabeçalho literal ``-----BEGIN…PRIVATE KEY-----``;
+        codificado em base64 ele vira ``LS0tLS1CRUdJTi…`` e passa batido. Antes de tratar um
+        blob como payload opaco, tenta decodificá-lo (alfabeto base64, padding válido) e
+        RE-RODA a regra de ESTRUTURA sobre o texto decodificado — se bate o cabeçalho de
+        chave privada (inclusive dentro de um JSON de service-account), reporta como
+        ``private-key``. Um blob que decodifica para binário/lixo não vira UTF-8 e é
+        ignorado (sem FP)."""
+        rule_pk = next((r for r in rules if r.id == "private-key"), None)
+        if rule_pk is None:
+            return
+        for m in _BLOB_BASE64_INLINE_RE.finditer(raw_line):
+            blob = m.group()
+            try:
+                decoded = base64.b64decode(blob, validate=True).decode("utf-8")
+            except ValueError:
+                continue  # padding inválido (binascii.Error) ou não-UTF-8: payload opaco
+            if rule_pk.regex.search(decoded) is None:
+                continue
+            start = m.start()
+            preview = redact_spans(raw_line, [(start, start + len(blob), blob)])
+            yield Finding(
+                rule_id=rule_pk.id,
+                title=rule_pk.title,
+                severity=rule_pk.severity,
+                location=Location(path=path, line=lineno, column=start + 1, commit=commit),
+                secret=blob,
+                redacted=redact(blob),
+                line_preview=preview,
+                entropy=round(shannon_entropy(blob), 2),
+                cwe=rule_pk.cwe,
+                owasp=rule_pk.owasp,
+                category=rule_pk.category,
+                recommendation=rule_pk.recommendation,
+            )
 
     def _rules_for(self, path: str, text: str) -> list[Rule]:
         """Regras válidas para esta unidade (algumas só valem em `.env` e afins).
@@ -622,6 +705,20 @@ def _nome_casa(nome: str, padroes: tuple[str, ...]) -> bool:
     return not any(fnmatch(nome, p[1:]) for p in padroes if p.startswith("!"))
 
 
+#: "Generalidade" de uma regra de fallback: quanto MAIOR, mais genérica — perde o empate
+#: do dedup e cede o rótulo para a regra mais específica que cobre o mesmo trecho. As não
+#: listadas (fornecedor/formato, `dotenv-assignment`, `secret-in-path`…) valem 0 (vencem).
+#: `config-file-secret` (qualquer `chave: valor` de config) perde para o formato canônico;
+#: `connection-string-password` (Password= dentro de connection string) cede a rótulo a uma
+#: regra de config/dotenv co-disparada, mas ainda vence a entropia crua; `high-entropy-string`
+#: é o fallback MAIS genérico (F-007) e perde para todo o resto.
+_ORDEM_GENERALIDADE: dict[str, int] = {
+    "config-file-secret": 1,
+    "connection-string-password": 2,
+    "high-entropy-string": 3,
+}
+
+
 def _dedupe_overlapping(
     hits: list[tuple[Rule, int, str, float]],
 ) -> list[tuple[Rule, int, str, float]]:
@@ -639,11 +736,7 @@ def _dedupe_overlapping(
         key=lambda h: (
             -h[0].severity.rank,
             h[0].category == "entropy",
-            h[0].id == "high-entropy-string",
-            # `config-file-secret` é o fallback largo de config (qualquer `chave: valor`):
-            # perde o empate para a regra canônica do formato — `dotenv-assignment` num
-            # `.env`, um segredo de fornecedor — mantendo o rótulo mais informativo.
-            h[0].id == "config-file-secret",
+            _ORDEM_GENERALIDADE.get(h[0].id, 0),
             h[0].id,
         ),
     )

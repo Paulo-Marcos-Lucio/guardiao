@@ -56,6 +56,12 @@ DOPPLER_TOKEN = "dp." + "pt." + "A1b2C3d4E5f6G7h8J9k0" + "L1m2N3o4P5q6R7s8T9u0" 
 LINEAR_KEY = "lin_" + "api_" + "A1b2C3d4E5f6G7h8J9k0" + "L1m2N3o4P5q6R7s8T9u0"
 # Stripe: sk_live_ + 24..99 alfanuméricos. Sintético.
 STRIPE_KEY = "sk_" + "live_" + "51H9xQmKz3PqRtYuVwXqBnDzFgHiJkLmN"
+# OpenAI project key: sk-proj- + corpo com o marcador T3BlbkFJ (base64 de "OpenAI"). Sintético.
+OPENAI_KEY = "sk-proj-" + "A1b2C3d4E5f6" + "T3BlbkFJ" + "G7h8J9k0L1m2N3o4P5q6"
+# Anthropic API key: sk-ant-api03- + base64url + AA final. Sintético.
+ANTHROPIC_KEY = "sk-ant-api03-" + "A1b2C3d4E5f6G7h8J9k0" + "L1m2N3o4P5q6R7s8T9u0" + "vWxYz" + "AA"
+# Connection string ADO.NET: senha embutida entre `;` (não é a forma URI). Sintética.
+CONNSTRING_SECRET = "Xk9Q2mNpR7wLvB3TzY8uW1"
 # A MESMA chave contendo a sequência 'abcdefgh' — o filtro de placeholder por substring
 # a suprimia em silêncio (uma CRITICAL sumindo por coincidência de 8 letras).
 STRIPE_KEY_COM_ALFABETO = "sk_" + "live_" + "51H9xQmKz3PqRtYuVwXaBcDeFgHiJkLmN"

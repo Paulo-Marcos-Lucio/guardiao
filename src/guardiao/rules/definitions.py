@@ -8,8 +8,10 @@ começa por **rotacionar/revogar**, não apenas remover do histórico.
 from __future__ import annotations
 
 import re
+from collections import Counter
+from urllib.parse import urlsplit
 
-from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy
+from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy, shannon_entropy
 from guardiao.core.models import Severity
 from guardiao.rules.base import Rule, compile_rule
 from guardiao.rules.br import cnpj_valido, cpf_valido
@@ -254,6 +256,23 @@ _CONFIG_SECRET_PATTERN = (
 # segredo é o 5º campo. Escopada a `.pgpass` (por isso 4 dois-pontos bastam como forma).
 _PGPASS_PATTERN = r"^[^:\n]+:[^:\n]*:[^:\n]*:[^:\n]*:([^:\n]{4,})[ \t]*$"
 
+# Connection string estilo `chave=valor;chave=valor` (ADO.NET/ODBC/JDBC-props/Azure
+# Storage) — NÃO é a forma URI `scheme://user:senha@host` da `db-connection-uri`. Aqui o
+# segredo é o valor de `Password=`/`Pwd=`/`AccountKey=`, delimitado por `;` (ou aspa/fim),
+# embutido no MEIO de uma string maior e INDEPENDENTE da extensão do arquivo (aparece em
+# `appsettings.json`, `.cs`, `.txt`, `web.config`…). A âncora `(?<![A-Za-z0-9])` prende a
+# chave a uma fronteira de token (após `;`, aspa, espaço ou início), não a `newPassword`
+# no meio de um identificador. O valor é capturado sem espaço/aspas nas pontas e depois
+# submetido ao piso multi-sinal (`looks_like_secret_value`), como toda credencial genérica.
+# O lookahead `(?=\s*;)` EXIGE o delimitador `;` (a assinatura de connection string), o que
+# impede a regra de roubar uma atribuição SOLTA `DB_PASSWORD=valor` de `.env`/YAML/`.cnf` —
+# essa é da `dotenv-assignment`/`config-file-secret`, escopadas por arquivo. Aqui o segredo
+# está de fato dentro de uma lista `chave=valor;chave=valor` em qualquer extensão.
+_CONNSTRING_SECRET_PATTERN = (
+    r"(?<![A-Za-z0-9])(?i:password|pwd|accountkey)\s*=\s*"
+    r"([^;\"'\s](?:[^;\"']*[^;\"'\s])?)(?=\s*;)"
+)
+
 
 def default_rules() -> list[Rule]:
     return [
@@ -312,6 +331,39 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A07,
             recommendation="Token fine-grained do GitHub. " + _ROTATE,
+        ),
+        compile_rule(
+            "openai-api-key",
+            "OpenAI API key",
+            Severity.HIGH,
+            # Prefixo canônico determinístico — dispara em QUALQUER contexto (bare, arg de
+            # função, log, URL), SEM depender de `key`/`token`/`secret` na linha (era esse
+            # o refém de keyword que deixava a chave passar num `logger.info`/lista). Três
+            # ramos: (1) os prefixos de projeto/serviço/admin modernos; (2) o marcador
+            # `T3BlbkFJ` (base64 de "OpenAI") embutido no meio da chave nova; (3) a chave
+            # legada `sk-` + 48 base62. O `-` depois de `sk` separa da Stripe (`sk_live_`).
+            r"\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}"
+            r"|sk-[A-Za-z0-9]{8,}T3BlbkFJ[A-Za-z0-9]{8,}"
+            r"|sk-[A-Za-z0-9]{48})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Chave de API da OpenAI (sk-proj-/sk-svcacct-/sk-admin-/sk-…) "
+            "autentica chamadas cobradas na conta. Revogue em platform.openai.com > API keys. "
+            + _ROTATE,
+        ),
+        compile_rule(
+            "anthropic-api-key",
+            "Anthropic API key",
+            Severity.HIGH,
+            # Prefixo `sk-ant-` (api03/admin01) é altíssima especificidade — dispara em
+            # qualquer contexto sem keyword. Chave real termina em `AA` e tem ~95 chars.
+            r"\b(sk-ant-(?:api03|admin01)-[A-Za-z0-9_-]{24,})\b",
+            secret_group=1,
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Chave de API da Anthropic (sk-ant-…) autentica chamadas cobradas "
+            "na conta. Revogue no console da Anthropic (Settings > API keys). " + _ROTATE,
         ),
         compile_rule(
             "gitlab-pat",
@@ -517,6 +569,24 @@ def default_rules() -> list[Rule]:
             recommendation="String de conexão com usuário e senha embutidos. " + _ROTATE,
         ),
         compile_rule(
+            "connection-string-password",
+            "Senha em connection string (chave=valor)",
+            Severity.HIGH,
+            # `Password=`/`Pwd=`/`AccountKey=` no estilo ADO.NET/ODBC/Azure Storage: o
+            # segredo está no meio de `Server=…;Password=…;Encrypt=true`, sem `://` (não é
+            # a `db-connection-uri`), em QUALQUER extensão. O piso multi-sinal barra
+            # `Password=changeme`/`Pwd=$(VAR)` e mantém a credencial real.
+            _CONNSTRING_SECRET_PATTERN,
+            secret_group=1,
+            validator=looks_like_secret_value,
+            heuristica=True,
+            cwe="CWE-798",
+            owasp=_A02,
+            recommendation="Senha/chave embutida numa connection string (Password=/Pwd=/"
+            "AccountKey=). Mova para um cofre de segredos e injete por variável de ambiente. "
+            + _ROTATE,
+        ),
+        compile_rule(
             "basic-auth-url",
             "Credencial em URL (Basic Auth)",
             Severity.MEDIUM,
@@ -534,6 +604,7 @@ def default_rules() -> list[Rule]:
             _ANCORA_CHAVE + r"""["' ]?\s*[:=]\s*["']([^"'\n]{8,})["']""",
             secret_group=1,
             validator=looks_like_secret_value,
+            heuristica=True,
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Valor de aparência secreta atribuído a uma chave sensível. " + _ROTATE,
@@ -554,6 +625,7 @@ def default_rules() -> list[Rule]:
             _SECRET_IN_PATH_PATTERN,
             secret_group=1,
             category="entropy",
+            heuristica=True,
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Token aleatório embutido num caminho/URL (vaza em logs, "
@@ -566,6 +638,7 @@ def default_rules() -> list[Rule]:
             _DOTENV_PATTERN,
             secret_group=1,
             validator=_dotenv_valor_real,
+            heuristica=True,
             only_files=_ARQUIVOS_DOTENV,
             cwe="CWE-798",
             owasp=_A02,
@@ -579,6 +652,7 @@ def default_rules() -> list[Rule]:
             _DOTENV_QUOTED_PATTERN,
             secret_group=2,
             validator=_env_quoted_e_segredo,
+            heuristica=True,
             only_files=_ARQUIVOS_DOTENV,
             cwe="CWE-798",
             owasp=_A02,
@@ -592,6 +666,7 @@ def default_rules() -> list[Rule]:
             _CONFIG_SECRET_PATTERN,
             secret_group=1,
             validator=_config_valor_real,
+            heuristica=True,
             only_files=_ARQUIVOS_CONFIG,
             cwe="CWE-798",
             owasp=_A02,
@@ -605,6 +680,7 @@ def default_rules() -> list[Rule]:
             _PGPASS_PATTERN,
             secret_group=1,
             validator=looks_like_secret_value,
+            heuristica=True,
             only_files=(".pgpass",),
             cwe="CWE-798",
             owasp=_A02,
@@ -617,6 +693,7 @@ def default_rules() -> list[Rule]:
             _ENTROPIA_PATTERN,
             secret_group=1,
             category="entropy",
+            heuristica=True,
             keywords=SECRET_CONTEXT,  # só dispara perto de palavra de contexto de segredo
             cwe="CWE-798",
             owasp=_A02,
@@ -826,6 +903,35 @@ def looks_like_placeholder(secret: str) -> bool:
     return any(sub in lowered for sub in PLACEHOLDER_SUBSTRINGS)
 
 
+def placeholder_domina(secret: str) -> bool:
+    """O valor é placeholder porque um MARCADOR o DOMINA — não porque uma substring de
+    placeholder aparece perdida no meio de um segredo real?
+
+    CAUSA-RAIZ da classe FN-P0: :func:`looks_like_placeholder` casa ``todo``/``mock``/
+    ``example`` em QUALQUER posição, então um ``ghp_todo…`` (token GitHub de formato
+    válido) ou um segredo humano com a substring embutida era suprimido em silêncio. Aqui
+    o marcador só domina de três formas — todas comparadas ao valor INTEIRO, nunca por
+    substring solta:
+
+    * é um valor de exemplo por inteiro (:func:`is_obvious_fake`: doc canônica, valor
+      repetido, template, URL de exemplo); **ou**
+    * o valor NÃO é de alta entropia (um segredo aleatório real nunca é placeholder, por
+      mais que traga uma palavra embutida) **e** o maior marcador presente cobre a maior
+      parte (≥ metade) do valor.
+
+    Propriedade: para qualquer segredo real ``S`` (alta entropia) e qualquer marcador
+    ``m``, ``S`` com ``m`` embutido continua NÃO sendo placeholder — logo continua
+    disparando se ``S`` sozinho dispara.
+    """
+    if is_obvious_fake(secret):
+        return True
+    if is_high_entropy(secret):
+        return False  # segredo aleatório real: marcador embutido não o torna exemplo
+    lowered = secret.lower()
+    maior = max((len(sub) for sub in PLACEHOLDER_SUBSTRINGS if sub in lowered), default=0)
+    return maior * 2 >= len(secret)  # o marcador cobre metade+ do valor: domina
+
+
 def is_probable_hash_or_id(token: str) -> bool:
     """UUID ou SHA-1 de 40 hex (commit/pin de action) — estrutura de hash, não de segredo.
 
@@ -899,6 +1005,34 @@ def _max_consonant_run(token: str) -> int:
     return max((len(m.group()) for m in _CONSOANTES.finditer(token)), default=0)
 
 
+#: Piso de entropia de Shannon abaixo do qual a cadeia é repetição, não aleatoriedade.
+#: Calibrado com folga: os FP de campo (saída de `ceph auth`, `xkkkk…`, `PREFIXsss…`,
+#: `ABCzzz==`) medem H ≤ 1,5, enquanto um segredo real de 20+ chars mede H ≥ 3,7.
+_ENTROPIA_SHANNON_MINIMA = 2.0
+#: Fração do comprimento que UM único caractere pode ocupar antes de a cadeia ser
+#: considerada repetição (um segredo aleatório de 20+ chars fica em ~5-13%).
+_FRACAO_MAXIMA_CHAR_DOMINANTE = 0.40
+
+
+def _aleatoriedade_refutada(value: str) -> bool:
+    """A distribuição de caracteres REFUTA a aleatoriedade? (classe FP corrida-de-consoante)
+
+    A corrida de consoantes e a contagem de classes de caractere aceitam, por engano, uma
+    cadeia REPETIDA: ``xkkkk…`` (uma classe), ``ABCzzz==`` (três classes), o
+    ``AQBQyyyy…==`` que sai de ``ceph auth get-or-create``. O discriminante é a variedade
+    real de símbolos: um caractere que domina o valor (≥ 40%) ou uma entropia de Shannon
+    baixíssima denunciam repetição, não um segredo gerado aleatoriamente. É um sinal que
+    REFUTA — só é consultado no regime de baixa entropia, então nunca cega um segredo real
+    (que já foi aceito antes pelo teto de :func:`is_high_entropy`)."""
+    n = len(value)
+    if n < 2:
+        return False
+    mais_frequente = Counter(value).most_common(1)[0][1]
+    if mais_frequente >= n * _FRACAO_MAXIMA_CHAR_DOMINANTE:
+        return True
+    return shannon_entropy(value) < _ENTROPIA_SHANNON_MINIMA
+
+
 def _num_char_classes(value: str) -> int:
     """Quantas das 4 classes (minúscula/maiúscula/dígito/símbolo) o valor mistura."""
     return sum(
@@ -951,6 +1085,71 @@ def _e_forma_estrutural_nao_segredo(value: str) -> bool:
     return False
 
 
+#: URL http(s) contígua dentro de uma linha (para localizar o segmento por posição).
+_URL_NA_LINHA = re.compile(r"https?://[^\s\"'<>()\[\]]+", re.IGNORECASE)
+#: Extensão de asset ESTÁTICO no fim de um segmento/URL — se a URL busca um asset, seus
+#: segmentos de path são públicos por design (avatar, ícone, doc), não segredo.
+_EXT_ASSET = re.compile(
+    r"\.(?:png|jpe?g|gif|svg|webp|ico|bmp|css|js|mjs|html?|woff2?|ttf|eot|pdf|md)"
+    r"(?=[/?#\"'\s]|$)",
+    re.IGNORECASE,
+)
+#: ARN da AWS contíguo na linha (`arn:aws:iam::…:policy/AmazonEKSClusterPolicy`): tudo o
+#: que está DENTRO de um ARN é identificador de recurso público, não credencial.
+_ARN_NA_LINHA = re.compile(r"\barn:aws[a-z0-9-]*:[^\s\"'<>]+", re.IGNORECASE)
+#: Placeholder de instância do AWS IAM Identity Center (`ssoins-` + 16 hex) — id de
+#: recurso, e nos exemplos de Terraform quase sempre um valor de fôrma.
+_SSOINS_PLACEHOLDER = re.compile(r"^ssoins-[0-9a-f]{16}$", re.IGNORECASE)
+#: Path de dispositivo mapeado (multipath/by-id) imediatamente antes do token: o segmento
+#: seguinte é um WWID/WWN de hardware, não um segredo.
+_DEV_MAPPER_ANTES = re.compile(r"/dev/(?:mapper|disk/by-id)/[^\s\"']*$", re.IGNORECASE)
+#: WWID/WWN de hardware: 32-40 hex contíguos (NAA + serial).
+_WWID_HEX = re.compile(r"^[0-9a-fA-F]{32,40}$")
+
+
+def _host_e_asset_ou_doc(host: str) -> bool:
+    """O host é de um CDN/asset/doc público reconhecível? (images.*, *cdn*, docs.aws…)"""
+    host = host.split(":")[0].lower()
+    if "cdn" in host:
+        return True
+    if host.endswith((".githubusercontent.com", ".readthedocs.io")):
+        return True
+    if host in ("docs.aws.amazon.com", "learn.microsoft.com"):
+        return True
+    primeiro = host.split(".")[0]
+    return primeiro in ("images", "image", "img", "static", "assets", "asset", "media")
+
+
+def segmento_e_recurso_publico(linha: str, token: str, inicio: int, fim: int) -> bool:
+    """O token de alta entropia é um SEGMENTO ESTRUTURAL de um recurso PÚBLICO reconhecível,
+    e não um segredo embutido?
+
+    Mesma doutrina de :func:`_e_forma_estrutural_nao_segredo` (reconhecer a FORMA antes de
+    pontuar por entropia), mas com o CONTEXTO da linha, porque o discriminante mora fora do
+    token: (a) segmento de URL cujo host é CDN/asset/doc (``images.opencollective.com``,
+    ``*cdn*``, ``docs.aws.amazon.com``) ou cuja URL busca um asset (``.png``/``.svg``/…);
+    (b) identificador de recurso cloud (dentro de um ``arn:aws:…`` ou placeholder
+    ``ssoins-<hex>``); (c) endereço de hardware (WWID/WWN de 32-40 hex logo após
+    ``/dev/mapper/`` ou ``/dev/disk/by-id/``). Chamado só no ramo de entropia — reduz FP sem
+    poder cegar uma regra de fornecedor."""
+    # (b) identificador de recurso cloud
+    if _SSOINS_PLACEHOLDER.match(token):
+        return True
+    for m in _ARN_NA_LINHA.finditer(linha):
+        if m.start() <= inicio and fim <= m.end():
+            return True
+    # (c) endereço de hardware (WWID/WWN após /dev/mapper|/dev/disk/by-id)
+    if _WWID_HEX.match(token) and _DEV_MAPPER_ANTES.search(linha[:inicio]):
+        return True
+    # (a) segmento de URL de CDN/asset/doc
+    for m in _URL_NA_LINHA.finditer(linha):
+        if m.start() <= inicio and fim <= m.end():
+            url = m.group()
+            if _host_e_asset_ou_doc(urlsplit(url).netloc) or _EXT_ASSET.search(url):
+                return True
+    return False
+
+
 def _proporcao_vogais(token: str) -> float:
     vogais = sum(1 for c in token.lower() if c in "aeiou")
     return vogais / len(token) if token else 0.0
@@ -978,11 +1177,23 @@ def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> 
         return True
     if _max_consonant_run(token) < 6:
         return False
+    if _aleatoriedade_refutada(token):
+        # Corrida de consoantes num valor REPETIDO (um caractere domina / Shannon
+        # baixíssima) não é aleatoriedade — é `xkkkk…`/`AQBQyyyy…`, não um segredo.
+        return False
     # Corrida de consoantes aceita blob impronunciável (ex.: base64 MAIÚSCULO), MAS uma
-    # palavra natural composta (alemão `...schluessel`, com `ue`) também dispara. O
-    # discriminante: palavra é toda alfabética e tem vogais suficientes; segredo real
-    # quase sempre traz dígitos/símbolos (FP-07).
-    return not (token.isalpha() and _proporcao_vogais(token) >= 0.22)
+    # palavra natural/técnica também dispara — alemão `...schluessel` (com `ue`), MIME type
+    # ou algoritmo (`aes256gcm`). O discriminante é a PRONUNCIABILIDADE das LETRAS, não
+    # `isalpha()` puro: um dígito/`-`/`_`/`/` é decoração técnica e não desqualifica a
+    # palavra. Só é segredo se as não-letras forem a mistura de símbolos de um token
+    # aleatório (`+`, `=`, `$`, `!`…), não decoração de identificador.
+    nucleo = re.sub(r"[^A-Za-z]", "", token)
+    e_palavra_tecnica = (
+        bool(nucleo)
+        and _proporcao_vogais(nucleo) >= 0.22
+        and all(c.isalnum() or c in "-_/." for c in token)
+    )
+    return not e_palavra_tecnica
 
 
 #: Partes de uma URL Basic-Auth, tolerante a host vazio/absurdo (o que os fixtures de
@@ -1076,6 +1287,13 @@ def looks_like_secret_value(value: str) -> bool:
         return False  # hash de senha (bcrypt/argon2/sha-crypt) é derivado, não a senha (FP-03)
     if _predominantemente_url_encoded(value):
         return False  # `%F0%9F%92%A9` (emoji URL-encoded de fixture) não é credencial
+    if _aleatoriedade_refutada(value):
+        # Cadeia REPETIDA (um caractere domina / Shannon baixíssima): nem o ramo de 3
+        # classes de caractere (`ABCzzz==`), nem o de corrida de consoantes (`xkkk…`,
+        # `PREFIXsss…`, saída de `ceph auth`), nem o de hex (`aaaa…11`) pode aceitá-la — não
+        # é aleatória. Vem ANTES do teto de entropia/hex, mas um segredo real de alta
+        # variedade nunca é refutado (dominância baixa e Shannon alta), então não há FN.
+        return False
     if is_high_entropy(value) or _HEX_SECRET.match(value):
         return True
     # Marcador de TESTE/placeholder no VALOR (palavra que um segredo real não carrega):

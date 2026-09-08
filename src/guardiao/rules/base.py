@@ -50,6 +50,14 @@ class Rule:
     #: contém ``sample`` sem ser exemplo. Quando ``True``, o motor pula esse filtro e
     #: delega ao ``validator`` a decisão de real-vs-exemplo (que parseia a estrutura).
     composto: bool = False
+    #: A regra é HEURÍSTICA (entropia, atribuição genérica, config/dotenv/pgpass) — o
+    #: valor casado NÃO tem forma de fornecedor validada pela própria regex. Só nessas o
+    #: filtro de placeholder por substring é admissível, e ainda assim só quando o marcador
+    #: DOMINA o valor (:func:`placeholder_domina`). Regras de FORMATO/fornecedor
+    #: (``heuristica=False``) têm a forma travada pela regex e só podem ser barradas pelo
+    #: valor de exemplo por INTEIRO (:func:`is_obvious_fake`) — nunca por uma substring
+    #: (``todo``/``mock``) perdida no meio de um token real (classe FN-P0).
+    heuristica: bool = False
 
 
 def compile_rule(
@@ -69,6 +77,7 @@ def compile_rule(
     validator: Callable[[str], bool] | None = None,
     only_files: tuple[str, ...] = (),
     composto: bool = False,
+    heuristica: bool = False,
 ) -> Rule:
     return Rule(
         id=id,
@@ -85,4 +94,5 @@ def compile_rule(
         validator=validator,
         only_files=only_files,
         composto=composto,
+        heuristica=heuristica,
     )

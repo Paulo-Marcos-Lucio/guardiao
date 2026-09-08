@@ -50,6 +50,7 @@ O Guardião foi feito para os dois momentos:
 | `github-token` / `github-pat-fine-grained` | Tokens do GitHub (PAT, OAuth, App) | 🟠 Alta | A07 · CWE-798 |
 | `mercadopago-access-token` | Access token de produção do Mercado Pago (`APP_USR-…`) | 🔴 Crítica | A02 · CWE-798 |
 | `google-api-key` | Chave de API do Google | 🟠 Alta | A02 · CWE-798 |
+| `openai-api-key` / `anthropic-api-key` | Chave de API da OpenAI (`sk-proj-`/`sk-svcacct-`/`sk-admin-`/marcador `T3BlbkFJ`) e da Anthropic (`sk-ant-`) — dispara em qualquer contexto, sem depender de palavra-chave na linha | 🟠 Alta | A02 · CWE-798 |
 | `gitlab-pat` | Personal Access Token do GitLab (`glpat-`) | 🟠 Alta | A07 · CWE-798 |
 | `npm-token` | Token de acesso do npm (`npm_`) — supply chain | 🟠 Alta | A03 · CWE-798 |
 | `sendgrid-api-key` | Chave de API do SendGrid (`SG.`) | 🟠 Alta | A02 · CWE-798 |
@@ -61,6 +62,7 @@ O Guardião foi feito para os dois momentos:
 | `linear-api-key` | Chave de API pessoal do Linear (`lin_api_`) | 🟠 Alta | A07 · CWE-798 |
 | `slack-token` / `slack-webhook` | Token/Webhook do Slack | 🟠/🟡 | A02/A01 |
 | `db-connection-uri` | URI de banco/serviço com `usuário:senha` — Postgres/MySQL/MariaDB/MSSQL/Mongo/Redis/AMQP/SMTP, prefixo `jdbc:` e sufixo `+driver`; usuário pode ser vazio (`redis://:senha@host`) | 🟠 Alta | A02 · CWE-798 |
+| `connection-string-password` | Senha/chave (`Password=`/`Pwd=`/`AccountKey=`) numa connection string estilo `chave=valor;` — ADO.NET/ODBC/Azure Storage, em qualquer extensão de arquivo | 🟠 Alta | A02 · CWE-798 |
 | `basic-auth-url` | Credencial embutida em URL | 🟡 Média | A07 · CWE-522 |
 | `jwt` | JSON Web Token no código | 🟡 Média | A07 · CWE-522 |
 | `dotenv-assignment` | Valor **sem aspas** atribuído a chave sensível em `.env`/`.envrc`/`*.env` | 🟠 Alta | A02 · CWE-798 |
