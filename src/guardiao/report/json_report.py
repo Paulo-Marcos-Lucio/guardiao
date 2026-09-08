@@ -53,7 +53,7 @@ def to_document(result: ScanResult) -> dict[str, object]:
         # relatório não é vinculável a um estado do código nem a um estado do
         # catálogo, e um achado que desaparece na entrega seguinte é
         # indistinguível de uma regra que foi afrouxada.
-        "commit": provenance.commit(),
+        "commit": provenance.commit(result.root),
         "ruleset_hash": provenance.ruleset_hash(),
         "artifact_sha256": None,
         "summary": {
@@ -69,6 +69,17 @@ def to_document(result: ScanResult) -> dict[str, object]:
             # inalcançáveis que um clone não recebe). Lista vazia = nenhum limite
             # conhecido; a chave existe sempre, para o consumidor não ter de adivinhar.
             "coverage_warnings": list(result.avisos_de_cobertura),
+            # Cobertura de RULESET: QUAIS regras do catálogo rodaram. Sem isto, um laudo de
+            # `--only github-token` (1 regra) é indistinguível do laudo completo — os dois
+            # dizem "0 achados". `partial=true` sinaliza que "limpo" vale só para as regras
+            # executadas; `rules_omitted` diz exatamente o que não foi avaliado.
+            "ruleset_coverage": {
+                "rules_total": result.regras_total,
+                "rules_run": result.regras_total - len(result.regras_omitidas),
+                "rules_omitted": list(result.regras_omitidas),
+                "entropy_disabled": result.entropia_desligada,
+                "partial": result.ruleset_parcial(),
+            },
         },
         "findings": [finding_to_dict(f) for f in result.findings],
     }

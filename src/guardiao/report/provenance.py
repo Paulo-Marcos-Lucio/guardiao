@@ -4,9 +4,12 @@ Defeito de origem: o relatório era um documento solto — não dava para provar
 qual versão do Guardião nem com qual conjunto de regras ele foi gerado, nem
 detectar adulteração posterior. Três campos resolvem isso:
 
-- ``commit`` — o SHA do código que rodou (env ``GUARDIAO_COMMIT`` → ``git
-  rev-parse HEAD`` → ``None``). Em pacote instalado sem git, cai em ``None`` sem
-  quebrar.
+- ``commit`` — o SHA do código AUDITADO (env ``GUARDIAO_COMMIT`` → ``git
+  rev-parse HEAD`` da RAIZ VARRIDA → ``None``). É o commit do repositório-alvo,
+  **não** o do CWD do processo: rodar da pasta da própria ferramenta varrendo
+  ``../outro-repo`` carimbava o HEAD da ferramenta — silenciosamente errado, e é
+  justamente a proveniência que existe para desmentir. Em pacote instalado sem
+  git, cai em ``None`` sem quebrar.
 - ``ruleset_hash`` — sha256 do catálogo de regras. Muda quando qualquer regra
   muda; dois laudos com o mesmo hash foram medidos com o mesmo conjunto de
   regras.
@@ -22,18 +25,38 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from guardiao.rules.definitions import OWASP_EDITION
 from guardiao.rules.registry import all_rules
 
+#: Um SHA-1 de commit tem exatamente 40 dígitos hex minúsculos. O filtro vale tanto para
+#: a saída do git quanto para o override do ambiente: um valor malformado (typo, variável
+#: errada herdada do CI) não pode contaminar a proveniência — é o "parece informação" que
+#: o docstring do módulo diz ser pior que o silêncio.
+_SHA_COMPLETO = re.compile(r"^[0-9a-f]{40}$")
 
-def _git_head() -> str | None:
-    """SHA do HEAD via git, ou ``None`` se não houver repositório/git disponível."""
+
+def _git_head(root: Path | str | None = None) -> str | None:
+    """SHA do HEAD do repositório que CONTÉM ``root``, ou ``None`` se não houver.
+
+    ``root`` é o caminho AUDITADO — o ``cwd`` do subprocesso é ele (ou a pasta que o
+    contém, quando é arquivo), nunca o diretório de trabalho do processo Guardião. Sem
+    isso o commit vinha do git de onde a ferramenta foi iniciada, não do código-alvo.
+    """
+    diretorio = Path(root) if root is not None else Path.cwd()
+    try:
+        if diretorio.is_file():
+            diretorio = diretorio.parent
+    except OSError:  # pragma: no cover - fs edge
+        pass
     try:
         proc = subprocess.run(
             ["git", "rev-parse", "HEAD"],
+            cwd=str(diretorio),
             capture_output=True,
             text=True,
             timeout=3,
@@ -41,20 +64,24 @@ def _git_head() -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    sha = proc.stdout.strip()
-    return sha if proc.returncode == 0 and sha else None
+    if proc.returncode != 0:
+        return None
+    sha = proc.stdout.strip().lower()
+    return sha if _SHA_COMPLETO.match(sha) else None
 
 
-def commit() -> str | None:
-    """Identidade do código: variável de ambiente tem prioridade sobre o git.
+def commit(root: Path | str | None = None) -> str | None:
+    """Identidade do código AUDITADO: ``GUARDIAO_COMMIT`` → git da raiz ``root`` → ``None``.
 
-    ``GUARDIAO_COMMIT`` existe para o caso do pacote instalado (sem .git) ou de
-    CI que já conhece o SHA e não quer pagar um subprocesso por laudo.
+    ``root`` é a raiz varrida (``ScanResult.root``): o commit tem de ser o do repositório
+    que contém o código-alvo, não o do CWD do processo. ``GUARDIAO_COMMIT`` tem prioridade
+    (pacote instalado sem ``.git``, ou CI que já conhece o SHA) e passa pelo MESMO filtro
+    de 40-hex que a saída do git — um override malformado cai para o git em vez de vazar.
     """
-    env = os.environ.get("GUARDIAO_COMMIT", "").strip()
-    if env:
+    env = os.environ.get("GUARDIAO_COMMIT", "").strip().lower()
+    if env and _SHA_COMPLETO.match(env):
         return env
-    return _git_head()
+    return _git_head(root)
 
 
 def ruleset_hash() -> str:

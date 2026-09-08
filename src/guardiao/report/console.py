@@ -43,7 +43,12 @@ def render(result: ScanResult, console: Console | None = None) -> None:
     console = console or Console()
 
     if not result.findings:
-        if result.total_pulado():
+        # "Limpo" só é tique VERDE quando a varredura foi COMPLETA: nada pulado E o
+        # catálogo inteiro rodado. Ruleset parcial (--only/--skip/--no-entropy) rebaixa
+        # o veredito para "no que foi analisado", como já faz o conteúdo pulado — senão
+        # `--only github-token` sem achado sairia com o mesmo tique verde da varredura
+        # inteira.
+        if result.total_pulado() or result.ruleset_parcial():
             console.print(
                 "[bold yellow]⚠ Nenhum segredo encontrado NO QUE FOI ANALISADO.[/] "
                 f"[dim]({result.units_scanned} unidades, {result.duration_s}s)[/]"
@@ -54,6 +59,7 @@ def render(result: ScanResult, console: Console | None = None) -> None:
                 f"[dim]({result.units_scanned} unidades, {result.duration_s}s)[/]"
             )
         _render_pulos(result, console)
+        _render_ruleset(result, console)
         _render_cobertura(result, console)
         return
 
@@ -76,6 +82,7 @@ def render(result: ScanResult, console: Console | None = None) -> None:
     _render_summary(result, console)
     _render_plano(result, console)
     _render_pulos(result, console)
+    _render_ruleset(result, console)
     _render_cobertura(result, console)
 
 
@@ -88,6 +95,28 @@ def _render_cobertura(result: ScanResult, console: Console) -> None:
     """
     for aviso in result.avisos_de_cobertura:
         console.print(Text("⚠ ", style="yellow") + txt(aviso))
+
+
+def _render_ruleset(result: ScanResult, console: Console) -> None:
+    """Cobertura de RULESET: quando a seleção (--only/--skip/--skip-category/--no-entropy)
+    reduz o catálogo, declara o recorte — com ou sem achado.
+
+    É o mesmo defeito que o ``_render_pulos`` fecha para o CONTEÚDO, agora para as REGRAS:
+    "não rodei essa regra" e "rodei e passou" precisam ser saídas distintas, senão um
+    ``--only github-token`` sem achado é lido como "o repositório está limpo". Os ids das
+    regras omitidas são constantes da própria ferramenta (não vêm do alvo), mas saem por
+    ``Text`` como todo o resto, por consistência de não-interpretar-markup.
+    """
+    if not result.ruleset_parcial():
+        return
+    rodadas = result.regras_total - len(result.regras_omitidas)
+    console.print(
+        f"[yellow]⚠ Ruleset PARCIAL:[/] {rodadas} de {result.regras_total} regra(s) do "
+        "catálogo executada(s) — o veredito vale só para elas."
+    )
+    if result.entropia_desligada:
+        console.print("[dim]  · detecção por entropia DESLIGADA (--no-entropy).[/]")
+    console.print(Text("  · não avaliado: ", style="dim") + txt(", ".join(result.regras_omitidas)))
 
 
 def _render_summary(result: ScanResult, console: Console) -> None:

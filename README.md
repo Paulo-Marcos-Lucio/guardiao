@@ -97,6 +97,15 @@ Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (co
 > Exemplo concreto do que ela corrigiu: a chave `sk_live_…` que por acaso contém a sequência
 > `abcdefgh` **não é mais engolida** pelo filtro de placeholder — antes uma credencial
 > CRÍTICA sumia em silêncio por coincidir com 8 letras de um exemplo de documentação.
+>
+> **Auditoria de 2026-09 (segredos)** acrescentou dois ganhos de detecção: chaves da
+> **OpenAI** (`sk-proj-`/`sk-svcacct-`/`sk-admin-`/marcador `T3BlbkFJ`) e da **Anthropic**
+> (`sk-ant-api03-…`) agora disparam por **prefixo determinístico** em qualquer contexto —
+> argumento de função, item de lista, `logger.info` —, sem depender de `key`/`secret`/`token`
+> na linha; e uma **chave privada PEM embrulhada em base64** (`{"payload":"LS0tLS1CRUdJTi…"}`)
+> é decodificada e detectada, onde antes o cabeçalho `-----BEGIN…` sumia sob a codificação.
+> A senha dentro de uma **connection string** ADO.NET/ODBC (`Password=`/`Pwd=`/`AccountKey=`)
+> passou a ser extraída independentemente da extensão do arquivo.
 
 ### Como evita falso-positivo
 
@@ -104,7 +113,9 @@ Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (co
 - **Contexto obrigatório.** A regra de entropia só dispara perto de `token`/`secret`/`key`/`password`… — inclusive em `DB_PASSWORD` e `accessToken`, que a fronteira `\b` não cobre.
 - **Contexto negativo.** Entropia **não** distingue hash de segredo (são matematicamente idênticos). Se a linha fala em `md5`/`etag`/`integrity`/`checksum`, o achado é descartado.
 - **Dígito verificador** em CPF/CNPJ (módulo 11): `000.000.000-00` não é dado pessoal.
-- **Filtro de placeholder**: descarta exemplos de documentação (`AKIAIOSFODNN7EXAMPLE`), `your-key-here`, `${VAR}`, valores repetidos. O relatório **informa quantos** valores foram descartados assim — a supressão é auditável, não silenciosa.
+- **Filtro de placeholder por natureza da regra.** Um marcador (`todo`/`mock`/`example`) só suprime quando **domina** o valor numa regra heurística; numa regra de **formato/fornecedor** (a regex já travou a forma) só um valor de exemplo por **inteiro** (`AKIAIOSFODNN7EXAMPLE`) barra. Assim um `ghp_todo…`/`sk_live_…abcdefgh…` real deixou de sumir por conter 4-8 letras de um exemplo. O relatório **informa quantos** valores foram descartados — a supressão é auditável, não silenciosa.
+- **Segmento de recurso público não é segredo.** Um token de alta entropia que é, na verdade, peça estrutural de um recurso **público** — slug em host de CDN/asset/doc (`images.*`, `*cdn*`, `docs.aws.amazon.com`), identificador de recurso cloud (`arn:aws:`, política gerenciada AWS, `ssoins-`+hex) ou endereço de hardware (WWID/WWN após `/dev/mapper`) — é reconhecido pela **forma** antes de ser pontuado por entropia. Sem cegar fornecedor: um `AKIA…`/`ghp_…` no mesmo caminho continua disparando.
+- **Corrida de consoantes com refutação.** A sequência de consoantes que sinaliza aleatoriedade é **refutada** quando outro sinal a desmente — um caractere que domina o valor (`AQBQyyyy…`) ou entropia de Shannon real baixíssima não é segredo, e um vocabulário técnico com `/`, `-`, `_` ou dígito (`aes256gcm`, um MIME type) escapa do gate.
 - **Allowlist inline**: uma linha com `# guardiao:allow` (ou `pragma: allowlist secret`) é ignorada.
 - **Baseline**: aceita a dívida atual e passa a barrar só o que for **novo**.
 
@@ -115,7 +126,7 @@ Honestidade primeiro — o que esta ferramenta **não** faz:
 - **Não valida a credencial.** Um `sk_live_` já revogado é reportado igual a um ativo.
 - **Contexto negativo é heurística.** Um segredo numa linha que também contenha `checksum` ou `commit` é descartado junto com os hashes.
 - **CNPJ alfanumérico** (formato novo da Receita, `AA.AAA.AAA/AAAA-DD`) **não** é detectado — só o numérico.
-- **Segredo multilinha** (corpo de chave privada, JSON de service account) é detectado pelo cabeçalho, não pelo corpo: a varredura é linha a linha.
+- **Segredo multilinha em texto cru** (corpo de chave privada, JSON de service account espalhado por várias linhas) é detectado pelo **cabeçalho**, não pelo corpo: a varredura é linha a linha. *(Já uma chave privada inteira embrulhada em base64 numa única linha — `{"payload":"LS0tLS1CRUdJTi…"}` — é decodificada e detectada.)*
 - **Não reescreve histórico.** Achar é metade; `git filter-repo` e a rotação são trabalho separado.
 - **O que é pulado aparece no relatório** (`summary.skipped`): **diretório inteiro excluído** (`vendor/`, `dist/`, `node_modules/`, virtualenv), lockfile, binário, arquivo acima de `--max-file-size` e linha acima de `--max-line-length`. "Não olhei" e "olhei e está limpo" são saídas visualmente distintas.
 
@@ -209,8 +220,8 @@ Principais opções do `scan`:
 | `--permitir-shallow` | Aceita rodar `--git-history` em clone raso (histórico incompleto). |
 | `--baseline` / `--update-baseline` | Suprime achados conhecidos / (re)grava o baseline. |
 | `--fail-on` | `none`/`info`/`low`/`medium`/`high`/`critical` — código de saída 1 para CI. |
-| `--only` / `--skip` / `--skip-category` | Filtra regras ou categorias (ex.: `--skip-category pii`). |
-| `--no-entropy` | Desliga a detecção por entropia. |
+| `--only` / `--skip` / `--skip-category` | Filtra regras ou categorias (ex.: `--skip-category pii`). O recorte do catálogo é **declarado** no laudo (`ruleset_coverage`). |
+| `--no-entropy` | Desliga a detecção por entropia — sinalizado como `entropy_disabled` no laudo. |
 | `--scan-lockfiles` | Também varre lockfiles/minificados (pulados por padrão). |
 | `--max-file-size` / `--max-line-length` | Tetos de varredura (padrão: 5 MB / 4.000 chars). |
 
@@ -243,6 +254,14 @@ Formato `suite-appsec/1`, igual nas quatro ferramentas: chaves e valores de enum
 em inglês (são identificadores), texto para humano em pt-BR. `summary.by_severity` traz
 **sempre** as cinco severidades, inclusive zeradas, e `summary.skipped` diz o que **não**
 foi analisado. A chave do identificador do achado é `id`.
+
+`summary.ruleset_coverage` declara **quais regras do catálogo rodaram**: quando você reduz
+o catálogo com `--only`/`--skip`/`--skip-category`/`--no-entropy`, o bloco marca
+`partial: true`, lista `rules_omitted` e liga `entropy_disabled` — e o console rebaixa o
+tique verde para **"nenhum segredo encontrado NO QUE FOI ANALISADO"**. "Não rodei essa
+regra" e "rodei e passou" deixam de ser a mesma saída (o SARIF carrega o mesmo em
+`properties.rulesetCoverage`). É a cobertura de **ruleset**, irmã da cobertura de
+**alcance** (`coverage_warnings`, abaixo).
 
 ### Hook de pre-commit
 

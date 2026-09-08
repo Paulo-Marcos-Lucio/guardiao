@@ -52,6 +52,7 @@ Guardião was built for both moments:
 | `github-token` / `github-pat-fine-grained` | GitHub tokens (PAT, OAuth, App) | 🟠 High | A07 · CWE-798 |
 | `mercadopago-access-token` | Mercado Pago production access token (`APP_USR-…`) | 🔴 Critical | A02 · CWE-798 |
 | `google-api-key` | Google API key | 🟠 High | A02 · CWE-798 |
+| `openai-api-key` / `anthropic-api-key` | OpenAI (`sk-proj-`/`sk-svcacct-`/`sk-admin-`/`T3BlbkFJ` marker) and Anthropic (`sk-ant-`) API keys — fires in any context, no keyword needed on the line | 🟠 High | A02 · CWE-798 |
 | `gitlab-pat` | GitLab Personal Access Token (`glpat-`) | 🟠 High | A07 · CWE-798 |
 | `npm-token` | npm access token (`npm_`) — supply chain | 🟠 High | A03 · CWE-798 |
 | `sendgrid-api-key` | SendGrid API key (`SG.`) | 🟠 High | A02 · CWE-798 |
@@ -62,12 +63,17 @@ Guardião was built for both moments:
 | `doppler-token` | Doppler personal token (`dp.pt.`) — secrets manager | 🔴 Critical | A02 · CWE-798 |
 | `linear-api-key` | Linear personal API key (`lin_api_`) | 🟠 High | A07 · CWE-798 |
 | `slack-token` / `slack-webhook` | Slack token/webhook | 🟠/🟡 | A02/A01 |
-| `db-connection-uri` | Database URI with `user:password` (user can be empty: `redis://:password@host`) | 🟠 High | A02 · CWE-798 |
+| `db-connection-uri` | Database/service URI with `user:password` — Postgres/MySQL/MariaDB/MSSQL/Mongo/Redis/AMQP/SMTP, `jdbc:` prefix and `+driver` suffix; user can be empty (`redis://:password@host`) | 🟠 High | A02 · CWE-798 |
+| `connection-string-password` | Password/key (`Password=`/`Pwd=`/`AccountKey=`) in a `key=value;`-style connection string — ADO.NET/ODBC/Azure Storage, in any file extension | 🟠 High | A02 · CWE-798 |
 | `basic-auth-url` | Credential embedded in URL | 🟡 Medium | A07 · CWE-522 |
 | `jwt` | JSON Web Token in code | 🟡 Medium | A07 · CWE-522 |
 | `dotenv-assignment` | **Unquoted** value assigned to a sensitive key in `.env`/`.envrc`/`*.env` | 🟠 High | A02 · CWE-798 |
+| `dotenv-quoted` | **Quoted** value (including a passphrase with spaces) in `.env`/`.envrc`/`*.env` | 🟠 High | A02 · CWE-798 |
+| `config-file-secret` | **Unquoted** credential in a config file (k8s/compose/Helm YAML, `.properties`, `.cnf`/`.ini`, `settings.xml`/`web.config`, `.npmrc`, `netrc`) | 🟠 High | A02 · CWE-798 |
+| `pgpass-credential` | Password in the 5th field of a `.pgpass` (`host:port:db:user:password`) | 🟠 High | A02 · CWE-798 |
 | `generic-assignment` | Value assigned to a sensitive key (`DB_PASSWORD`, `JWT_SECRET`, `apiKey`…) | 🟡 Medium | A02 · CWE-798 |
 | `high-entropy-string` | Random 24+ char string near secret-related context | 🟡 Medium | A02 · CWE-798 |
+| `secret-in-path` | High-entropy string embedded in a path/URL (leaks in logs, referrer, browser history) | 🟡 Medium | A02 · CWE-798 |
 | `cpf` / `cnpj` | Personal data in plain text, **with check-digit validation** (**LGPD**) | 🔵 Low/Info | A04 · CWE-359 |
 
 Every finding includes **severity**, **redacted evidence**, a **recommendation** (starting with *rotate*), and **OWASP + CWE** classification.
@@ -93,6 +99,13 @@ Every finding includes **severity**, **redacted evidence**, a **recommendation**
 > Concrete example of what it fixed: a `sk_live_…` key that happens to contain the sequence
 > `abcdefgh` **is no longer swallowed** by the placeholder filter — previously a CRITICAL
 > credential would silently disappear for coinciding with 8 letters from a documentation example.
+>
+> **The 2026-09 audit (secrets)** added two detection wins: **OpenAI** (`sk-proj-`/`sk-svcacct-`/`sk-admin-`/`T3BlbkFJ`
+> marker) and **Anthropic** (`sk-ant-api03-…`) keys now fire by **deterministic prefix** in any context —
+> function argument, list item, `logger.info` — without needing `key`/`secret`/`token` on the line; and a
+> **PEM private key wrapped in base64** (`{"payload":"LS0tLS1CRUdJTi…"}`) is now decoded and detected, where
+> before the `-----BEGIN…` header vanished under the encoding. The password inside an ADO.NET/ODBC
+> **connection string** (`Password=`/`Pwd=`/`AccountKey=`) is now extracted regardless of the file extension.
 
 ### How it avoids false positives
 
@@ -100,7 +113,9 @@ Every finding includes **severity**, **redacted evidence**, a **recommendation**
 - **Mandatory context.** The entropy rule only triggers near `token`/`secret`/`key`/`password`… — including inside `DB_PASSWORD` and `accessToken`, which the `\b` boundary doesn't cover.
 - **Negative context.** Entropy **cannot** distinguish a hash from a secret (they're mathematically identical). If the line mentions `md5`/`etag`/`integrity`/`checksum`, the finding is discarded.
 - **Check-digit validation** on CPF/CNPJ (mod 11): `000.000.000-00` is not personal data.
-- **Placeholder filter**: discards documentation examples (`AKIAIOSFODNN7EXAMPLE`), `your-key-here`, `${VAR}`, repeated values. The report **states how many** values were discarded this way — the suppression is auditable, not silent.
+- **Placeholder filter by rule nature.** A marker (`todo`/`mock`/`example`) only suppresses when it **dominates** the value in a heuristic rule; for a **format/vendor** rule (the regex already locked the shape) only a whole-value example (`AKIAIOSFODNN7EXAMPLE`) blocks it. So a real `ghp_todo…`/`sk_live_…abcdefgh…` stopped disappearing over 4–8 letters of an example. The report **states how many** values were discarded — the suppression is auditable, not silent.
+- **A public resource segment is not a secret.** A high-entropy token that is actually a structural piece of a **public** resource — a slug in a CDN/asset/doc host (`images.*`, `*cdn*`, `docs.aws.amazon.com`), a cloud resource identifier (`arn:aws:`, an AWS managed policy, `ssoins-`+hex) or a hardware address (WWID/WWN after `/dev/mapper`) — is recognized by its **shape** before being scored by entropy. Without blinding vendor formats: an `AKIA…`/`ghp_…` on the same path still fires.
+- **Consonant run with refutation.** The consonant run that signals randomness is **refuted** when another signal contradicts it — a character that dominates the value (`AQBQyyyy…`) or a very low real Shannon entropy is not a secret, and technical vocabulary with `/`, `-`, `_` or a digit (`aes256gcm`, a MIME type) escapes the gate.
 - **Inline allowlist**: a line containing `# guardiao:allow` (or `pragma: allowlist secret`) is ignored.
 - **Baseline**: accepts the current debt and starts blocking only what's **new**.
 
@@ -111,7 +126,7 @@ Honesty first — what this tool **does not** do:
 - **Does not validate the credential.** An already-revoked `sk_live_` is reported the same as an active one.
 - **Negative context is a heuristic.** A secret on a line that also contains `checksum` or `commit` gets discarded along with the hashes.
 - **Alphanumeric CNPJ** (the new format from Brazil's tax authority — Receita Federal, `AA.AAA.AAA/AAAA-DD`) is **not** detected — only the numeric one.
-- **Multi-line secrets** (private key body, service account JSON) are detected by their header, not their body: the scan is line by line.
+- **Multi-line secrets in raw text** (private key body, service account JSON spread across several lines) are detected by their **header**, not their body: the scan is line by line. *(A whole private key wrapped in base64 on a single line — `{"payload":"LS0tLS1CRUdJTi…"}` — is decoded and detected, though.)*
 - **Does not rewrite history.** Finding is half the job; `git filter-repo` and rotation are separate work.
 - **What gets skipped shows up in the report** (`summary.skipped`): **entire excluded directories** (`vendor/`, `dist/`, `node_modules/`, virtualenv), lockfiles, binaries, files above `--max-file-size`, and lines above `--max-line-length`. "I didn't look" and "I looked and it's clean" are visually distinct outcomes.
 
@@ -205,8 +220,8 @@ Main options for `scan`:
 | `--permitir-shallow` | Allows running `--git-history` on a shallow clone (incomplete history). |
 | `--baseline` / `--update-baseline` | Suppresses known findings / (re)writes the baseline. |
 | `--fail-on` | `none`/`info`/`low`/`medium`/`high`/`critical` — exit code 1 for CI. |
-| `--only` / `--skip` / `--skip-category` | Filters rules or categories (e.g., `--skip-category pii`). |
-| `--no-entropy` | Turns off entropy-based detection. |
+| `--only` / `--skip` / `--skip-category` | Filters rules or categories (e.g., `--skip-category pii`). The catalog reduction is **declared** in the report (`ruleset_coverage`). |
+| `--no-entropy` | Turns off entropy-based detection — flagged as `entropy_disabled` in the report. |
 | `--scan-lockfiles` | Also scans lockfiles/minified files (skipped by default). |
 | `--max-file-size` / `--max-line-length` | Scan ceilings (default: 5 MB / 4,000 chars). |
 
@@ -239,6 +254,13 @@ Need them aligned? Pass `--fail-on` explicitly on all of them — never rely on 
 are in English (they're identifiers), human-facing text is in Brazilian Portuguese (pt-BR). `summary.by_severity`
 **always** carries all five severities, including zeroed ones, and `summary.skipped` states what was **not**
 analyzed. The finding identifier key is `id`.
+
+`summary.ruleset_coverage` declares **which catalog rules actually ran**: when you reduce the catalog with
+`--only`/`--skip`/`--skip-category`/`--no-entropy`, the block sets `partial: true`, lists `rules_omitted`
+and turns on `entropy_disabled` — and the console downgrades the green check to **"no secrets found IN WHAT
+WAS ANALYZED"**. "I didn't run that rule" and "I ran it and it passed" stop being the same output (the SARIF
+carries the same in `properties.rulesetCoverage`). It's **ruleset** coverage, sibling to the **reach**
+coverage (`coverage_warnings`, below).
 
 ### Pre-commit hook
 

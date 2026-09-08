@@ -279,6 +279,27 @@ class ScanResult:
     #: objetos inalcançáveis do repositório de origem). Não é erro e não muda o código
     #: de saída: travar o CI do cliente por um limite conhecido seria pior que declará-lo.
     avisos_de_cobertura: list[str] = field(default_factory=list)
+    #: Raiz varrida (caminho AUDITADO). A proveniência resolve o ``commit`` pelo git DESTA
+    #: raiz, não pelo CWD do processo — senão, rodar da pasta da ferramenta varrendo
+    #: ``../outro-repo`` carimbava o HEAD da ferramenta. ``None`` no pipeline sem alvo de
+    #: caminho (pre-commit, unidades cruas): aí o CWD é a resposta correta.
+    root: Path | str | None = None
+    #: Cobertura de RULESET: regras do catálogo que NÃO rodaram nesta varredura, filtradas
+    #: por ``--only``/``--skip``/``--skip-category``/``--no-entropy``. Uma varredura de
+    #: ruleset REDUZIDO não pode certificar "limpo" como se tivesse rodado o catálogo inteiro
+    #: — "não rodei essa regra" e "rodei e passou" precisam ser distinguíveis, exatamente
+    #: como já são para o conteúdo pulado (:attr:`skipped`).
+    regras_omitidas: list[str] = field(default_factory=list)
+    #: Tamanho do catálogo completo (regras conhecidas), para o denominador da cobertura.
+    regras_total: int = 0
+    #: ``--no-entropy``: a detecção por entropia foi desligada. Sinal EXPLÍCITO além de as
+    #: regras de entropia já aparecerem em :attr:`regras_omitidas` — desligar entropia é o
+    #: recorte de ruleset mais comum e o consumidor de máquina merece um booleano dedicado.
+    entropia_desligada: bool = False
+
+    def ruleset_parcial(self) -> bool:
+        """Rodou-se um subconjunto do catálogo? Então "limpo" não é "limpo completo"."""
+        return bool(self.regras_omitidas)
 
     def counts(self) -> dict[Severity, int]:
         result: dict[Severity, int] = dict.fromkeys(Severity, 0)
@@ -300,11 +321,18 @@ class Scanner:
 
     def __init__(self, config: Config | None = None, rules: list[Rule] | None = None) -> None:
         self.config = config or Config()
+        #: O catálogo COMPLETO desta instância (antes de qualquer filtro de seleção). É o
+        #: denominador da cobertura de ruleset: sem guardá-lo, uma varredura com `--only`
+        #: certificava "limpo" sem dizer que rodou uma regra só.
+        self._rules_all = list(rules if rules is not None else all_rules())
         self.rules = [
-            rule
-            for rule in (rules if rules is not None else all_rules())
-            if self.config.rule_enabled(rule.id, rule.category)
+            rule for rule in self._rules_all if self.config.rule_enabled(rule.id, rule.category)
         ]
+
+    def _cobertura_de_ruleset(self) -> list[str]:
+        """Ids das regras do catálogo completo que a seleção desta varredura DESATIVOU."""
+        ativos = {rule.id for rule in self.rules}
+        return sorted(rule.id for rule in self._rules_all if rule.id not in ativos)
 
     # -- unidade mínima: um texto ------------------------------------------- #
 
@@ -611,13 +639,20 @@ class Scanner:
             duration_s=round(time.perf_counter() - started, 4),
             skipped=contadores,
             placeholders=placeholders,
+            regras_omitidas=self._cobertura_de_ruleset(),
+            regras_total=len(self._rules_all),
+            entropia_desligada=not self.config.use_entropy,
         )
 
     # -- varredura de arquivos ---------------------------------------------- #
 
     def scan_paths(self, paths: Iterable[Path | str]) -> ScanResult:
+        alvos = list(paths)
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
-        return self.scan_units(_file_units(paths, self.config, skipped), skipped)
+        result = self.scan_units(_file_units(alvos, self.config, skipped), skipped)
+        # A proveniência resolve o commit pelo git DESTA raiz (o 1º alvo), não pelo CWD.
+        result.root = alvos[0] if alvos else None
+        return result
 
     # -- varredura de histórico Git ----------------------------------------- #
 
@@ -638,6 +673,7 @@ class Scanner:
         )
         result = self.scan_units(units, skipped)
         result.avisos_de_cobertura = avisos
+        result.root = Path(repo)  # o commit vem do git deste repositório, não do CWD
         # O MESMO segredo persiste em dezenas de blobs (todo commit que tocou o arquivo
         # o recarrega): 283 linhas brutas eram ~64 vazamentos distintos. Colapsa por
         # fingerprint (regra+arquivo+valor ocultado) em UM achado, contando as recidivas.

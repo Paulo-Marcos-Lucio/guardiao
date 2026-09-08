@@ -102,7 +102,7 @@ def to_sarif(result: ScanResult) -> str:
     # regra qualquer para descobrir contra qual commit e qual catálogo o run saiu.
     propriedades: dict[str, object] = {
         "owasp_edition": OWASP_EDITION,
-        "commit": provenance.commit(),
+        "commit": provenance.commit(result.root),
         "ruleset_hash": provenance.ruleset_hash(),
         "artifact_sha256": None,
         "skipped": dict(result.skipped),
@@ -111,6 +111,15 @@ def to_sarif(result: ScanResult) -> str:
         # inalcançáveis que um clone não recebe). Sem isso, o Code Scanning
         # verde de um clone é lido como "o histórico está limpo".
         "coverageWarnings": list(result.avisos_de_cobertura),
+        # QUAIS regras do catálogo rodaram: um Code Scanning verde de `--only`/`--skip`/
+        # `--no-entropy` não pode ser lido como "varri tudo e está limpo".
+        "rulesetCoverage": {
+            "rulesTotal": result.regras_total,
+            "rulesRun": result.regras_total - len(result.regras_omitidas),
+            "rulesOmitted": list(result.regras_omitidas),
+            "entropyDisabled": result.entropia_desligada,
+            "partial": result.ruleset_parcial(),
+        },
     }
     document = {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",

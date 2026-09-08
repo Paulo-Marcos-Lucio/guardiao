@@ -4,6 +4,49 @@ Todos os lançamentos notáveis deste projeto são documentados aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado — detecção (auditoria adversarial de 2026-09-08)
+
+Bateria empírica de causa-raiz, cada item travado por invariante property-based:
+
+- **Chaves de IA por prefixo determinístico.** Regras `openai-api-key` (`sk-proj-`/`sk-svcacct-`/
+  `sk-admin-`/marcador `T3BlbkFJ`) e `anthropic-api-key` (`sk-ant-api03-…`) disparam em **qualquer
+  contexto** — argumento de função, item de lista, `logger.info` —, sem depender de `key`/`secret`/
+  `token` na linha. Fechavam um FN: a chave em contexto solto passava batida.
+- **Chave privada PEM embrulhada em base64.** Um blob base64 longo (`{"payload":"LS0tLS1CRUdJTi…"}`)
+  é decodificado e re-testado contra a estrutura de chave privada; casa também o JSON de service-account.
+  Blob que decodifica para binário/lixo não vira UTF-8 e é ignorado (sem FP).
+- **Senha em connection string.** Nova regra `connection-string-password` extrai `Password=`/`Pwd=`/
+  `AccountKey=` de dentro de uma string estilo `chave=valor;` (ADO.NET/ODBC/Azure Storage), independente
+  da extensão do arquivo — sem roubar a atribuição solta de `.env`.
+
+### Corrigido — detecção (mesma auditoria)
+
+- **Placeholder por substring suprimia segredo real.** `_placeholder_suprime(rule, secret)` passa a
+  respeitar a natureza da regra: formato/fornecedor só barra com o valor de exemplo por **inteiro**
+  (`is_obvious_fake`); heurística exige o marcador **dominar** o valor. Um `ghp_todo…`/`sk_live_…abcdefgh…`
+  real deixou de sumir por conter 4-8 letras de um exemplo de documentação.
+- **Segmento de recurso público lido como segredo.** `secret-in-path`/`high-entropy-string` reconhecem
+  pela **forma** — host de CDN/asset/doc, `arn:aws:`, política gerenciada AWS, `ssoins-`+hex, WWID/WWN após
+  `/dev/mapper` — antes de pontuar por entropia, sem cegar formato de fornecedor.
+- **Corrida de consoantes aceitava não-segredo.** Refutada por dominância de caractere / entropia de
+  Shannon real, e vocabulário técnico com `/`,`-`,`_` ou dígito (`aes256gcm`, MIME type) escapa do gate.
+
+### Adicionado — proveniência e cobertura (suite-meta)
+
+- **`commit` da proveniência resolvido pela RAIZ VARRIDA**, não pelo CWD do processo (PROV-01).
+  `ScanResult` ganhou `root`; `provenance.commit(root)` roda `git rev-parse HEAD` com `cwd=root` (arquivo →
+  pasta pai) e `GUARDIAO_COMMIT` passou a ser validado por `^[0-9a-f]{40}$` — um override malformado cai para
+  o git em vez de contaminar o laudo. Rodar da pasta da ferramenta varrendo `../outro-repo` deixou de carimbar
+  o HEAD da ferramenta.
+- **Cobertura de RULESET declarada.** `--only`/`--skip`/`--skip-category`/`--no-entropy` reduzem o catálogo
+  em silêncio: `ScanResult` ganhou `regras_omitidas`/`regras_total`/`entropia_desligada`; o JSON traz
+  `summary.ruleset_coverage` (`partial`, `rules_omitted`, `entropy_disabled`), o SARIF traz
+  `properties.rulesetCoverage`, e o console rebaixa o tique verde para **"nenhum segredo encontrado NO QUE
+  FOI ANALISADO"** quando o catálogo é parcial. "Não rodei essa regra" e "rodei e passou" deixam de ser a
+  mesma saída.
+
 ## [0.5.0] — 2026-08-05
 
 ### Corrigido — calibração anti-falso-positivo (medição de campo 2026-08-05)
