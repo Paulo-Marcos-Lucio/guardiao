@@ -46,3 +46,15 @@ você daria ao segredo que ele aponta.
 
 Todo segredo encontrado deve ser considerado comprometido — a resposta correta é
 **rotacionar/revogar**, não apenas remover do histórico.
+
+## Modelo de ameaças da suíte
+
+Como a suíte AppSec se defende de um alvo hostil — e o que ainda não está
+fechado — está documentado em
+[`modelo-de-ameacas.md`](https://github.com/Paulo-Marcos-Lucio/sentinela/blob/main/docs/modelo-de-ameacas.md),
+no repositório da [Sentinela](https://github.com/Paulo-Marcos-Lucio/sentinela): é
+ela quem tem superfície de rede (fala HTTP com o alvo escolhido pelo operador). O
+Guardião lê arquivo e histórico de Git locais — não recebe resposta de rede
+arbitrária —, por isso o modelo de ameaça correspondente aqui é mais estreito: a
+seção **Escopo e princípio** acima já cobre o que interessa (nunca vazar o
+segredo cru no relatório).
