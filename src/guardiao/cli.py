@@ -23,6 +23,8 @@ from guardiao.report import console as console_report
 from guardiao.report.console import txt
 from guardiao.report.json_report import to_json
 from guardiao.report.sarif import to_sarif
+from guardiao.rules.base import Rule
+from guardiao.rules.gitleaks import GitleaksConfig, GitleaksConfigError, load_gitleaks_config
 from guardiao.rules.registry import all_rules
 from guardiao.sources.files import decode_text_bytes
 from guardiao.sources.githistory import GitError
@@ -76,13 +78,21 @@ def _root(
     pass
 
 
-def _validar_selecao(only: list[str], skip: list[str], skip_category: list[str]) -> None:
+def _validar_selecao(
+    only: list[str],
+    skip: list[str],
+    skip_category: list[str],
+    catalogo: list[Rule] | None = None,
+) -> None:
     """Id inexistente em --only/--skip/--skip-category aborta com 2.
 
     Sem isto, um typo (`--only aws-acess-key-id`) devolve "✓ Nenhum segredo
     encontrado" e exit 0: o CI fica verde para sempre e ninguém percebe.
+
+    ``catalogo`` é o conjunto de regras contra o qual validar — inclui as
+    regras de `--gitleaks-config` quando usado, senão só as internas.
     """
-    regras = all_rules()
+    regras = catalogo if catalogo is not None else all_rules()
     ids = {rule.id for rule in regras}
     categorias = {rule.category for rule in regras}
     for valores, validos, rotulo in (
@@ -107,8 +117,9 @@ def _build_config(
     max_file_size: int = Config.max_file_size,
     max_line_length: int = Config.max_line_length,
     incluir_testes: bool = False,
+    catalogo: list[Rule] | None = None,
 ) -> Config:
-    _validar_selecao(only, skip, skip_category)
+    _validar_selecao(only, skip, skip_category, catalogo)
     return Config(
         only=frozenset(only),
         skip=frozenset(skip),
@@ -119,6 +130,38 @@ def _build_config(
         max_line_length=max_line_length,
         demote_tests=not incluir_testes,
     )
+
+
+def _catalogo_com_gitleaks(gitleaks_path: Path | None) -> tuple[list[Rule], GitleaksConfig | None]:
+    """Catálogo interno + regras de `--gitleaks-config` (quando informado).
+
+    Devolve também o `GitleaksConfig` carregado — o chamador usa
+    `GitleaksConfig.filtra()` para aplicar `path`/allowlist nos achados
+    depois do scan e despeja `.avisos` em `ScanResult.avisos_de_cobertura`.
+    `None` quando `--gitleaks-config` não foi usado.
+
+    Falha de carregamento e colisão de id com uma regra interna abortam com
+    exit 2 — mesma postura de `_validar_selecao` e de `rules/external.py`.
+    """
+    catalogo = list(all_rules())
+    if gitleaks_path is None:
+        return catalogo, None
+    try:
+        gitleaks_config = load_gitleaks_config(gitleaks_path)
+    except GitleaksConfigError as exc:
+        err_console.print(Text(f"Config gitleaks: {exc}", style="bold red"))
+        raise typer.Exit(2) from exc
+    colisoes = sorted({r.id for r in gitleaks_config.rules} & {r.id for r in catalogo})
+    if colisoes:
+        err_console.print(
+            Text(
+                f"Regra(s) do gitleaks.toml colide(m) com id interno: {', '.join(colisoes)}",
+                style="bold red",
+            )
+        )
+        raise typer.Exit(2)
+    catalogo.extend(gitleaks_config.rules)
+    return catalogo, gitleaks_config
 
 
 def _exit_code(result: ScanResult, fail_on: FailOn) -> int:
@@ -202,9 +245,17 @@ def scan(
     skip_category: list[str] = typer.Option(
         [], "--skip-category", help="Pula categorias inteiras (ex.: pii)."
     ),
+    gitleaks_config_path: Path | None = typer.Option(
+        None,
+        "--gitleaks-config",
+        help="Carrega regras + allowlist de um gitleaks.toml real (migração sem "
+        "reescrever regra por regra). Construção não suportada vira aviso de "
+        "cobertura no relatório — não trava o scan.",
+    ),
 ) -> None:
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
+    catalogo, gitleaks_config = _catalogo_com_gitleaks(gitleaks_config_path)
     config = _build_config(
         only,
         skip,
@@ -214,8 +265,9 @@ def scan(
         max_file_size,
         max_line_length,
         incluir_testes,
+        catalogo,
     )
-    scanner = Scanner(config=config)
+    scanner = Scanner(config=config, rules=catalogo)
 
     if git_history:
         try:
@@ -225,6 +277,15 @@ def scan(
             raise typer.Exit(2) from exc
     else:
         result = scanner.scan_paths(targets)
+
+    if gitleaks_config is not None:
+        result.findings, suprimidos_gitleaks = gitleaks_config.filtra(result.findings)
+        if suprimidos_gitleaks:
+            result.avisos_de_cobertura.append(
+                f"{suprimidos_gitleaks} achado(s) suprimido(s) pelo path/allowlist do "
+                "gitleaks.toml carregado."
+            )
+        result.avisos_de_cobertura.extend(gitleaks_config.avisos)
 
     if update_baseline:
         target = baseline or Path(".guardiao-baseline.json")
