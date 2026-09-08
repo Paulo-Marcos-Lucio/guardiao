@@ -26,6 +26,11 @@ def finding_to_dict(finding: Finding) -> dict[str, object]:
         "title": finding.title,
         "severity": finding.severity.value,
         "severity_rank": finding.severity.rank,
+        # `type`: o que o achado estruturalmente representa (ver `EvidenceType`).
+        # `confidence`: confiança do MECANISMO de detecção (ver `Confidence`) — não
+        # uma medição por achado, é herdada da regra que disparou.
+        "type": finding.evidence_type.value,
+        "confidence": finding.confidence.value,
         "path": finding.location.path,
         "line": finding.location.line,
         "column": finding.location.column,

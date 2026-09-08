@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from guardiao.core.models import Severity
+from guardiao.core.models import Confidence, EvidenceType, Severity
 from guardiao.rules.registry import all_rules
 
 _RAIZ = Path(__file__).resolve().parent.parent
@@ -114,3 +114,21 @@ def test_readme_declara_o_rotulo_owasp_real() -> None:
         if r.owasp is not None and owasp_por_id[r.id] != r.owasp.split(":", 1)[0]
     }
     assert divergentes == {}
+
+
+def test_toda_regra_declara_type_e_confidence() -> None:
+    """EV-10: `type`/`confidence` no `-f json` só é um contrato de verdade se NENHUMA
+    regra puder escapar sem declará-los. `Rule.evidence_type`/`Rule.confidence` já são
+    obrigatórios no dataclass (uma regra nova sem eles quebra a importação do módulo,
+    antes deste teste rodar) — mas isso protege contra omissão, não contra um valor
+    aceito só porque o tipo é opcional em algum ponto da cadeia. Este teste é o que
+    falha explicitamente, com a mensagem certa, se alguém contornar o dataclass (ex.:
+    construindo `Rule(...)` fora de `compile_rule`, sem passar pelos kwargs
+    obrigatórios) ou usar `None`/string solta em vez do enum.
+    """
+    sem_type_ou_confidence = [
+        r.id
+        for r in all_rules()
+        if not isinstance(r.evidence_type, EvidenceType) or not isinstance(r.confidence, Confidence)
+    ]
+    assert sem_type_ou_confidence == []

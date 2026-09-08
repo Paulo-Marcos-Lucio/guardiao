@@ -36,6 +36,45 @@ _SEVERITY_RANK: dict[Severity, int] = {
 }
 
 
+class EvidenceType(str, Enum):
+    """O que o achado estruturalmente REPRESENTA — independente de qual sinal
+    (regex de fornecedor, entropia, checksum) fez a regra disparar.
+
+    Existe para o consumidor do JSON (dashboard, triagem) decidir o próximo passo sem
+    reabrir a regex da regra: uma ``credential`` isolada se rotaciona; um
+    ``connection_string`` também expõe host/usuário; um ``generic_secret`` pede
+    confirmação humana antes de qualquer ação automática; ``personal_data`` é
+    tratado pelo fluxo de LGPD, não pelo de rotação de credencial.
+    """
+
+    CREDENTIAL = "credential"  # segredo utilizável isoladamente: chave de API, token, chave privada
+    CONNECTION_STRING = "connection_string"  # URI/URL com credencial embutida (DB, Basic-Auth)
+    GENERIC_SECRET = (
+        "generic_secret"  # heurística de entropia/atribuição, sem formato de fornecedor
+    )
+    PERSONAL_DATA = "personal_data"  # CPF/CNPJ — dado pessoal (LGPD), não é segredo de sistema
+
+
+class Confidence(str, Enum):
+    """Confiança de que o achado é um verdadeiro-positivo, dado o MECANISMO de
+    detecção da regra — não uma medição por achado (isso é o `bench/`, agregado
+    por regra). Serve para quem consome o JSON priorizar triagem: um dashboard que
+    lista tudo em `-f json --fail-on info` não deveria pesar `high-entropy-string`
+    igual a `aws-access-key-id`.
+
+    - HIGH: formato específico de fornecedor (prefixo + comprimento fixo) ou
+      validador que reprova estrutura (checksum, host real) — falso-positivo raro.
+    - MEDIUM: heurística com filtro de contexto (keyword-gate, restrição de
+      arquivo) que reduz mas não elimina falso-positivo.
+    - LOW: heurística ampla (só entropia/estrutura), sem verificação adicional —
+      é exatamente a faixa que o `--fail-on medium` do README avisa que fica ligada.
+    """
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 @dataclass(frozen=True)
 class Location:
     """Onde um segredo foi encontrado."""
@@ -61,6 +100,13 @@ class Finding:
     secret: str
     redacted: str
     line_preview: str
+    #: Tipo estrutural e confiança do mecanismo de detecção — ver
+    #: :class:`EvidenceType` e :class:`Confidence`. Herdados da :class:`~guardiao.rules.base.Rule`
+    #: que disparou o achado; toda regra do catálogo declara os dois (ver
+    #: `tests/test_catalogo.py::test_toda_regra_declara_type_e_confidence`). Sem default:
+    #: um chamador que esqueça de propagar um dos dois quebra na construção, não em produção.
+    evidence_type: EvidenceType
+    confidence: Confidence
     entropy: float | None = None
     cwe: str | None = None
     owasp: str | None = None

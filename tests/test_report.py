@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 from guardiao.core.engine import Scanner
-from guardiao.core.models import Severity
+from guardiao.core.models import Confidence, EvidenceType, Severity
 from guardiao.core.redaction import KEEP_PUBLICADO, redact
 from guardiao.report import console as console_report
 from guardiao.report.json_report import SCHEMA, to_document, to_json
@@ -51,6 +51,10 @@ def test_contrato_json_da_suite(planted_dir: Path) -> None:
         assert "id" in finding and "rule" not in finding
         assert finding["severity"] in {s.value for s in Severity}
         assert isinstance(finding["severity_rank"], int)
+        # EV-10: todo achado real do JSON traz `type`/`confidence` — não só as
+        # regras do catálogo em abstrato, o achado que de fato sai no relatório.
+        assert finding["type"] in {t.value for t in EvidenceType}
+        assert finding["confidence"] in {c.value for c in Confidence}
 
 
 def test_console_nao_imprime_o_segredo_cru(planted_dir: Path) -> None:
