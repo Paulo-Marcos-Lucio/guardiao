@@ -23,6 +23,8 @@ from guardiao.report import console as console_report
 from guardiao.report.console import txt
 from guardiao.report.json_report import to_json
 from guardiao.report.sarif import to_sarif
+from guardiao.rules.base import Rule
+from guardiao.rules.external import ExternalRuleError, load_external_rules
 from guardiao.rules.registry import all_rules
 from guardiao.sources.files import decode_text_bytes
 from guardiao.sources.githistory import GitError
@@ -76,13 +78,21 @@ def _root(
     pass
 
 
-def _validar_selecao(only: list[str], skip: list[str], skip_category: list[str]) -> None:
+def _validar_selecao(
+    only: list[str],
+    skip: list[str],
+    skip_category: list[str],
+    catalogo: list[Rule] | None = None,
+) -> None:
     """Id inexistente em --only/--skip/--skip-category aborta com 2.
 
     Sem isto, um typo (`--only aws-acess-key-id`) devolve "✓ Nenhum segredo
     encontrado" e exit 0: o CI fica verde para sempre e ninguém percebe.
+
+    ``catalogo`` é o conjunto de regras contra o qual validar — inclui as
+    regras externas quando `--regras` foi usado, senão só as internas.
     """
-    regras = all_rules()
+    regras = catalogo if catalogo is not None else all_rules()
     ids = {rule.id for rule in regras}
     categorias = {rule.category for rule in regras}
     for valores, validos, rotulo in (
@@ -107,8 +117,9 @@ def _build_config(
     max_file_size: int = Config.max_file_size,
     max_line_length: int = Config.max_line_length,
     incluir_testes: bool = False,
+    catalogo: list[Rule] | None = None,
 ) -> Config:
-    _validar_selecao(only, skip, skip_category)
+    _validar_selecao(only, skip, skip_category, catalogo)
     return Config(
         only=frozenset(only),
         skip=frozenset(skip),
@@ -119,6 +130,35 @@ def _build_config(
         max_line_length=max_line_length,
         demote_tests=not incluir_testes,
     )
+
+
+def _catalogo_com_externas(regras_path: Path | None) -> list[Rule]:
+    """Catálogo interno + regras de `--regras` (quando informado).
+
+    Falha de carregamento (TOML malformado, regex inválida, severidade
+    desconhecida) e colisão de id com uma regra interna abortam com exit 2 —
+    a mesma postura de `_validar_selecao`: um typo não pode virar "nenhum
+    segredo encontrado" silencioso.
+    """
+    catalogo = list(all_rules())
+    if regras_path is None:
+        return catalogo
+    try:
+        externas = load_external_rules(regras_path)
+    except ExternalRuleError as exc:
+        err_console.print(Text(f"Regras externas: {exc}", style="bold red"))
+        raise typer.Exit(2) from exc
+    colisoes = sorted({r.id for r in externas} & {r.id for r in catalogo})
+    if colisoes:
+        err_console.print(
+            Text(
+                f"Regra(s) externa(s) colide(m) com id interno: {', '.join(colisoes)}",
+                style="bold red",
+            )
+        )
+        raise typer.Exit(2)
+    catalogo.extend(externas)
+    return catalogo
 
 
 def _exit_code(result: ScanResult, fail_on: FailOn) -> int:
@@ -202,9 +242,17 @@ def scan(
     skip_category: list[str] = typer.Option(
         [], "--skip-category", help="Pula categorias inteiras (ex.: pii)."
     ),
+    regras: Path | None = typer.Option(
+        None,
+        "--regras",
+        help="Regras declarativas adicionais, em TOML (tabelas [[regra]] com "
+        "id/padrao/severidade/categoria/only_files). Entram no relatório com a "
+        "mesma estrutura das regras internas.",
+    ),
 ) -> None:
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
+    catalogo = _catalogo_com_externas(regras)
     config = _build_config(
         only,
         skip,
@@ -214,8 +262,9 @@ def scan(
         max_file_size,
         max_line_length,
         incluir_testes,
+        catalogo,
     )
-    scanner = Scanner(config=config)
+    scanner = Scanner(config=config, rules=catalogo)
 
     if git_history:
         try:
