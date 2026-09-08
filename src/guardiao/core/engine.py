@@ -566,12 +566,53 @@ def _file_units(
     paths: Iterable[Path | str], config: Config, skipped: dict[str, int]
 ) -> Iterator[Unit]:
     for raw in paths:
-        for file_path in iter_files(Path(raw), config, skipped):
+        raiz = Path(raw)
+        ancora = _ancora_de_relativizacao(raiz)
+        for file_path in iter_files(raiz, config, skipped):
             text = read_text(file_path)
             if text is None:
                 skipped["binario"] += 1
                 continue
-            yield (str(file_path), text, None)
+            yield (_caminho_portavel(file_path, ancora), text, None)
+
+
+def _ancora_de_relativizacao(raiz: Path) -> Path:
+    """Pasta-âncora à qual os caminhos dos achados ficam RELATIVOS.
+
+    Um alvo-diretório é a própria âncora; um alvo-arquivo usa a pasta que o contém, de
+    modo que varrer um arquivo isolado rende só o nome dele. É essa âncora que torna o
+    caminho PORTÁTIL: o mesmo alvo, em qualquer máquina ou diretório de trabalho, gera
+    o mesmo ``location.path`` — logo a mesma chave de baseline e a mesma ``uri`` no SARIF.
+    """
+    try:
+        if raiz.is_file():
+            return raiz.parent
+    except OSError:  # pragma: no cover - fs edge
+        pass
+    return raiz
+
+
+def _caminho_portavel(file_path: Path, ancora: Path) -> str:
+    """Caminho do arquivo varrido RELATIVO à âncora, em POSIX — a forma portável.
+
+    Normalizar aqui, na FRONTEIRA onde a unidade nasce, é o que impede o caminho cru
+    (absoluto, dependente do diretório de trabalho, com ``\\`` do Windows) de vazar para
+    o relatório, para o SARIF e para a fingerprint do baseline. A varredura de arquivos
+    só entrega caminhos contidos na raiz (a checagem de contenção já barra junction e
+    symlink que resolvem para fora), então ``relative_to`` casa no caminho comum.
+
+    Fallback para o caso patológico (âncora e arquivo lexicamente incomparáveis, ex.:
+    ``..`` sobrando): tenta a forma canônica resolvida dos dois e, se ainda assim falhar,
+    devolve só o NOME do arquivo — determinístico e que **nunca** revela o caminho
+    absoluto do auditor. Fail-closed: na dúvida, encurta o caminho, não vaza o absoluto.
+    """
+    try:
+        return file_path.relative_to(ancora).as_posix()
+    except ValueError:
+        try:
+            return file_path.resolve().relative_to(ancora.resolve()).as_posix()
+        except (ValueError, OSError):  # pragma: no cover - fs edge
+            return file_path.name
 
 
 def _nome_casa(nome: str, padroes: tuple[str, ...]) -> bool:
