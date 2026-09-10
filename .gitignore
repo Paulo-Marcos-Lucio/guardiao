@@ -33,3 +33,7 @@ gbd.json
 # Versionar o literal faria o push protection do GitHub recusar — e ele estaria certo.
 bench/positivos/stripe.js
 bench/resultado.json
+
+# Repositório sintético gerado por `python bench/tempo.py` — determinístico (o script
+# reproduz o mesmo SHA sempre), não precisa de versionamento.
+bench/_tempo_repo/
