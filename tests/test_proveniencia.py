@@ -15,10 +15,22 @@ from pathlib import Path
 
 import pytest
 
+from guardiao.core import provenance
 from guardiao.core.engine import Scanner
-from guardiao.report import provenance
 from guardiao.report.json_report import to_document, to_json
 from guardiao.report.sarif import to_sarif
+
+_HEX64 = 64  # comprimento do hex de um sha256
+
+
+def _e_sha256_prefixado(valor: object) -> bool:
+    """A receita da suíte: `ruleset_hash` é auto-descritivo — `sha256:` + 64 hex."""
+    return (
+        isinstance(valor, str)
+        and valor.startswith("sha256:")
+        and len(valor) == len("sha256:") + _HEX64
+        and all(c in "0123456789abcdef" for c in valor.removeprefix("sha256:"))
+    )
 
 
 def _sem_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -34,13 +46,18 @@ def test_relatorio_carrega_commit_e_ruleset_hash(
 
     doc = json.loads(to_json(result))
     assert doc["commit"] == "0" * 40
-    assert len(doc["ruleset_hash"]) == 64
-    assert len(doc["artifact_sha256"]) == 64
+    # O Guardião audita um ALVO: o discriminador tem de dizer "target", não "tool".
+    assert doc["commit_scope"] == "target"
+    assert _e_sha256_prefixado(doc["ruleset_hash"])
+    assert len(doc["artifact_sha256"]) == _HEX64
 
     run = json.loads(to_sarif(result))["runs"][0]
-    assert run["properties"]["commit"] == "0" * 40
-    assert len(run["properties"]["ruleset_hash"]) == 64
-    assert len(run["properties"]["artifact_sha256"]) == 64
+    # O commit vai no slot padrão que o Code Scanning lê, não enterrado em properties.
+    assert run["versionControlProvenance"][0]["revisionId"] == "0" * 40
+    assert "commit" not in run["properties"]
+    assert run["properties"]["commit_scope"] == "target"
+    assert _e_sha256_prefixado(run["properties"]["ruleset_hash"])
+    assert len(run["properties"]["artifact_sha256"]) == _HEX64
 
 
 def test_commit_e_none_fora_de_repositorio_git(
@@ -103,3 +120,29 @@ def test_artifact_sha256_e_verificavel_pela_receita_documentada(planted_dir: Pat
     del doc["artifact_sha256"]
     canonico = json.dumps(doc, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     assert hashlib.sha256(canonico.encode("utf-8")).hexdigest() == declarado
+
+
+def test_paridade_da_receita_de_proveniencia(planted_dir: Path) -> None:
+    """PARIDADE de suíte (Classe F): o recibo de proveniência do Guardião segue o
+    MESMO contrato que o cliente usa para conferir as outras ferramentas — para não
+    ter de aprender quatro receitas. Trava a forma, não só a existência dos campos:
+
+    - ``ruleset_hash`` auto-descritivo (``sha256:`` + 64 hex) e a versão do schema do
+      catálogo embutida (``guardiao-ruleset/1``);
+    - ``artifact_sha256`` = 64 hex da serialização canônica compacto-ordenada;
+    - ``commit_scope`` presente e coerente (``"target"``: o Guardião audita um alvo).
+
+    Este é o alvo mecânico de D/E/F: uma receita só, verificável de fora.
+    """
+    doc = to_document(Scanner().scan_paths([planted_dir]))
+    assert _e_sha256_prefixado(doc["ruleset_hash"])
+    assert provenance.RULESET_SCHEMA == "guardiao-ruleset/1"
+    assert len(str(doc["artifact_sha256"])) == _HEX64
+    assert doc["commit_scope"] == provenance.COMMIT_SCOPE == "target"
+
+    run = json.loads(to_sarif(Scanner().scan_paths([planted_dir])))["runs"][0]
+    props = run["properties"]
+    assert _e_sha256_prefixado(props["ruleset_hash"])
+    assert props["commit_scope"] == "target"
+    # No SARIF o commit mora no slot padrão do schema, nunca duplicado em properties.
+    assert "commit" not in props

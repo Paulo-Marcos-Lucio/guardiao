@@ -26,10 +26,10 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
+from guardiao.core import provenance
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
 from guardiao.report import console as console_report
-from guardiao.report import provenance
 from guardiao.report.json_report import to_document
 from guardiao.report.sarif import to_sarif
 from guardiao.rules.registry import all_rules
@@ -95,7 +95,10 @@ def test_commit_vem_da_raiz_varrida_nao_do_cwd(
     assert doc["commit"] != head_b  # nunca o do CWD
 
     run = json.loads(to_sarif(result))["runs"][0]
-    assert run["properties"]["commit"] == head_a
+    # O commit do alvo vive no slot padrão do SARIF (que o Code Scanning lê), com o
+    # discriminador de sentido em properties — nunca o HEAD do CWD da ferramenta.
+    assert run["versionControlProvenance"][0]["revisionId"] == head_a
+    assert run["properties"]["commit_scope"] == "target"
 
 
 def test_commit_root_resolve_git_do_alvo_e_none_fora_de_repo(

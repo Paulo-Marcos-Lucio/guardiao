@@ -11,9 +11,9 @@ from __future__ import annotations
 import json
 
 from guardiao import __version__
+from guardiao.core import provenance
 from guardiao.core.engine import ScanResult
 from guardiao.core.models import Finding, Severity
-from guardiao.report import provenance
 from guardiao.rules.definitions import OWASP_EDITION
 
 SCHEMA = "suite-appsec/1"
@@ -49,11 +49,14 @@ def to_document(result: ScanResult) -> dict[str, object]:
         "tool": "guardiao",
         "version": __version__,
         "owasp_edition": OWASP_EDITION,
-        # Proveniência (ver report/provenance.py): sem estes três campos o
-        # relatório não é vinculável a um estado do código nem a um estado do
-        # catálogo, e um achado que desaparece na entrega seguinte é
-        # indistinguível de uma regra que foi afrouxada.
+        # Proveniência (ver core/provenance.py): sem estes campos o relatório não é
+        # vinculável a um estado do código nem a um estado do catálogo, e um achado
+        # que desaparece na entrega seguinte é indistinguível de uma regra afrouxada.
+        # `commit_scope` diz o SENTIDO de `commit`: no Guardião é o commit do repo
+        # AUDITADO (`"target"`), não o da ferramenta — mesmo nome, sentidos opostos
+        # entre as tools da suíte sem o discriminador.
         "commit": provenance.commit(result.root),
+        "commit_scope": provenance.COMMIT_SCOPE,
         "ruleset_hash": provenance.ruleset_hash(),
         "artifact_sha256": None,
         "summary": {

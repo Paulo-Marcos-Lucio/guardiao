@@ -15,10 +15,10 @@ import json
 import re
 
 from guardiao import __version__
+from guardiao.core import provenance
 from guardiao.core.engine import ScanResult
 from guardiao.core.models import Finding, Severity
 from guardiao.core.redaction import KEEP_PUBLICADO, redact
-from guardiao.report import provenance
 from guardiao.rules.definitions import OWASP_EDITION
 from guardiao.rules.registry import all_rules
 
@@ -100,9 +100,13 @@ def to_sarif(result: ScanResult) -> str:
     # A proveniência vai no NÍVEL DO RUN, e não só em cada regra: quem consome o
     # arquivo inteiro (a aba Security, um agregador) não deveria precisar abrir uma
     # regra qualquer para descobrir contra qual commit e qual catálogo o run saiu.
+    commit = provenance.commit(result.root)
     propriedades: dict[str, object] = {
         "owasp_edition": OWASP_EDITION,
-        "commit": provenance.commit(result.root),
+        # O commit vai no slot PADRÃO `versionControlProvenance.revisionId` (abaixo), que é
+        # o que o Code Scanning de fato lê; aqui fica só o DISCRIMINADOR de sentido — no
+        # Guardião o commit é o do repositório auditado (`"target"`), não o da ferramenta.
+        "commit_scope": provenance.COMMIT_SCOPE,
         "ruleset_hash": provenance.ruleset_hash(),
         "artifact_sha256": None,
         "skipped": dict(result.skipped),
@@ -121,24 +125,29 @@ def to_sarif(result: ScanResult) -> str:
             "partial": result.ruleset_parcial(),
         },
     }
+    run: dict[str, object] = {
+        "tool": {
+            "driver": {
+                "name": "guardiao",
+                "informationUri": "https://github.com/Paulo-Marcos-Lucio/guardiao",
+                "version": __version__,
+                "rules": _rule_descriptors(),
+            }
+        },
+        "results": [_result(f) for f in result.findings],
+        # Property bag do run (permitido pelo schema): o que NÃO foi analisado.
+        "properties": propriedades,
+    }
+    # Commit do repositório AUDITADO no slot PADRÃO que o GitHub Code Scanning lê
+    # (`run.versionControlProvenance[].revisionId`) — antes ficava enterrado em
+    # `properties.commit`, que o Code Scanning ignora. Só quando há commit (varredura
+    # de pacote instalado sem `.git` cai em `None`, e um slot vazio seria pior que ausente).
+    if commit is not None:
+        run["versionControlProvenance"] = [{"revisionId": commit}]
     document = {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
-        "runs": [
-            {
-                "tool": {
-                    "driver": {
-                        "name": "guardiao",
-                        "informationUri": "https://github.com/Paulo-Marcos-Lucio/guardiao",
-                        "version": __version__,
-                        "rules": _rule_descriptors(),
-                    }
-                },
-                "results": [_result(f) for f in result.findings],
-                # Property bag do run (permitido pelo schema): o que NÃO foi analisado.
-                "properties": propriedades,
-            }
-        ],
+        "runs": [run],
     }
     # Sobre o `run` já montado e com o campo ainda em `null` — mesma receita do
     # JSON, aplicada ao objeto onde o campo de proveniência de fato mora no SARIF.

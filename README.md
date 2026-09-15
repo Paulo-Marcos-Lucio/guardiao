@@ -16,7 +16,7 @@
 [![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
 [![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
-[![186 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
+[![293 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
 [![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-qualidade-de-engenharia--método)
 
 </div>
@@ -93,8 +93,10 @@ Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (co
 > derrubou o falso-positivo no `encode/httpx` de 25 para 4 (empatando com o gitleaks nas chaves reais
 > do `psf/requests`), com o recall do corpus preservado.
 >
-> A calibração que produz esses números **está neste repositório**; não há motor secreto.
-> Exemplo concreto do que ela corrigiu: a chave `sk_live_…` que por acaso contém a sequência
+> A calibração que produz esses números **está neste repositório** — cada filtro é auditável e
+> nenhum número aqui é copiado. Onde a detecção passiva pública para e a **confirmação ativa** do
+> Pro começa está na seção [Versão Pro](#-versão-pro-privada--confirmação-ativa--condução-humana),
+> abaixo. Exemplo concreto do que a calibração corrigiu: a chave `sk_live_…` que por acaso contém a sequência
 > `abcdefgh` **não é mais engolida** pelo filtro de placeholder — antes uma credencial
 > CRÍTICA sumia em silêncio por coincidir com 8 letras de um exemplo de documentação.
 >
@@ -310,23 +312,30 @@ total, rode a varredura no próprio repositório de origem.
 
 ---
 
-## 🔓 Versão Pro (privada) — é SERVIÇO, não outro motor
+## 🔓 Versão Pro (privada) — confirmação ativa + condução humana
 
-Sendo direto, porque aqui a honestidade é o produto: **a ferramenta deste repo já é a engine calibrada,
-e é a mais completa que existe.** Não há motor mais forte escondido no privado — nem versão melhor em
-lugar nenhum. O que você roda de graça é exatamente o que eu rodo num contrato. O Pro não é outra
-detecção; é **trabalho humano conduzido por mim** em cima desta engine:
+Direto, porque aqui a honestidade é o produto: **a ferramenta deste repositório faz detecção passiva
+completa e honesta para o que se propõe** — regex de provedor + entropia + validador BR, com o baixo
+falso-positivo medido no [`bench/`](./bench), tudo aberto e auditável. A edição **Pro** (privada)
+acrescenta **código de confirmação ativa que não está aqui**: um **verificador-vivo tri-state**
+(`--validar`, read-only e sob autorização explícita) que separa segredo *ainda ativo* de *já
+revogado*; **checksum estrutural offline**; e uma **taxonomia BR-PII com dígito verificador**
+(CPF/CNPJ/PIX/CNH/título/PIS/CNS). O diferencial não é "mais regras" — é **confirma-não-explora
+auditável + baixo-FP com número + recorte BR/LGPD** —, e vem embrulhado em **trabalho humano conduzido
+por mim**:
 
 | | **Ferramenta pública (você roda)** | **Pro / serviço (eu conduzo com você)** |
 | --- | --- | --- |
-| **Motor de detecção** | Esta engine — recall 13/14 no corpus de [`bench/`](./bench), zero falso-positivo | **A mesma engine, sem uma linha a mais.** O que você paga é a condução, não o motor |
+| **Detecção** | Esta engine — detecção **passiva** completa: recall 13/14 no corpus de [`bench/`](./bench), zero falso-positivo | **A mesma detecção passiva** + **confirmação ativa** (verificador-vivo `--validar`, checksum offline, BR-PII com DV) que **não vive no repositório público** |
 | **Escopo** | O caminho ou repositório que você aponta | **A organização inteira**: todos os repositórios e **todo o histórico Git**, não só o `HEAD` |
 | **Triagem** | Você lê o relatório e adjudica cada achado | Eu **trio cada achado** como verdadeiro ou falso-positivo e entrego a lista já limpa — sem despejar ruído no time |
 | **Rotação** | A ferramenta acha; rotacionar é com você (ela *não* rotaciona) | **Plano de rotação por provedor**, passo a passo, + **reteste que comprova** que a credencial saiu de circulação |
 | **Evidência (LGPD art. 46)** | JSON/SARIF datado que você mesmo gera | Relatório datado: o que existia, o que foi rotacionado e a confirmação de que a chave antiga não responde mais |
-| **O que muda** | Código completo, aberto e auditável | **Trabalho humano conduzido** — não um motor secreto |
+| **O que muda** | Detecção passiva honesta, código completo e auditável | **Confirmação ativa + condução humana** — prova que o segredo ainda responde (read-only, confirma-não-explora), não só que ele existe |
 
-> **Tem repositórios ou um histórico Git longo que nunca foram auditados?** Eu conduzo a varredura, a triagem e a rotação com você — com a **mesma engine que está neste repositório**.
+> **Tem repositórios ou um histórico Git longo que nunca foram auditados?** Eu conduzo a varredura, a
+> triagem e a rotação com você — a mesma detecção passiva deste repositório, agora com a camada de
+> **confirmação ativa** que só roda no serviço. Contato: **contatopml26@gmail.com**.
 
 <div align="center">
 
@@ -386,7 +395,7 @@ Princípios de projeto:
 
 ## 🔬 Qualidade de engenharia & método
 
-**Portões (medidos neste repo em 2026-08-04, não copiados):** 183 testes (1 skip), incluindo *property-based* (Hypothesis) que afirmam invariantes de classe · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (22 arquivos) · `ruff` lint + format limpo (42 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
+**Portões (medidos neste repo em 2026-09-15, não copiados):** 293 testes (1 skip), incluindo *property-based* (Hypothesis) que afirmam invariantes de classe · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (23 arquivos) · `ruff` lint + format limpo (63 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
 
 **Teste que morde a mão que o desfaz.** A calibração anti-falso-positivo vive sob guarda: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) fica **vermelho** se um filtro de precisão voltar a engolir um segredo real — reafirma que AWS, `ghp_`, entropia e chave privada continuam disparando. E `test_toda_regra_do_catalogo_tem_caso_positivo` reprova o CI se uma regra nova nascer sem caso positivo: "regra sem teste" e "regra que nunca casa nada" passam a ser indistinguíveis — e barradas. Dogfooding: `test_source_tree_is_clean` varre o próprio `src/`.
 

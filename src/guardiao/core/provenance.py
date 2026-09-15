@@ -16,8 +16,16 @@ detectar adulteração posterior. Três campos resolvem isso:
 - ``artifact_sha256`` — sha256 do próprio documento (sem o campo), canônico. O
   cliente recomputa e detecta adulteração.
 
-Molde: ``chaveiro/src/chaveiro/report/provenance.py`` (mesma suíte, mesmo
-contrato ``suite-appsec/1``).
+Receita de verificação (idêntica nas ferramentas da suíte, para o cliente conferir
+os quatro laudos com UM procedimento só):
+
+- ``ruleset_hash`` = ``sha256:`` + sha256 do catálogo canônico (chaves ordenadas,
+  separadores compactos), com a versão do schema do catálogo (``guardiao-ruleset/1``)
+  embutida no material hasheado — mudar o schema muda o hash.
+- ``artifact_sha256`` = sha256 da serialização canônica do documento com o próprio
+  campo em ``None``/ausente (``sort_keys=True, separators=(',',':'), ensure_ascii=False``).
+- ``commit_scope`` no envelope diz o SENTIDO do ``commit``: para o Guardião é
+  ``"target"`` — o commit é o do repositório AUDITADO, não o da ferramenta.
 """
 
 from __future__ import annotations
@@ -38,6 +46,18 @@ from guardiao.rules.registry import all_rules
 #: errada herdada do CI) não pode contaminar a proveniência — é o "parece informação" que
 #: o docstring do módulo diz ser pior que o silêncio.
 _SHA_COMPLETO = re.compile(r"^[0-9a-f]{40}$")
+
+#: Versão do schema do CATÁLOGO de regras, embutida no material que gera o ``ruleset_hash``.
+#: Mudar a forma do catálogo (colunas hasheadas, semântica de um campo) obriga a subir isto,
+#: e o hash muda junto — dois laudos com o mesmo ``ruleset_hash`` foram medidos com o mesmo
+#: catálogo E o mesmo schema. Padrão da suíte: ``<tool>-ruleset/<n>``.
+RULESET_SCHEMA = "guardiao-ruleset/1"
+
+#: Sentido do campo ``commit`` no envelope. No Guardião o commit é o do repositório
+#: **auditado** (o alvo da varredura), não o da ferramenta — daí ``"target"``. O
+#: discriminador existe porque outras ferramentas da suíte carimbam o commit da própria
+#: ferramenta (``"tool"``): mesmo nome de campo, sentidos opostos sem isto.
+COMMIT_SCOPE = "target"
 
 
 def _git_head(root: Path | str | None = None) -> str | None:
@@ -85,7 +105,12 @@ def commit(root: Path | str | None = None) -> str | None:
 
 
 def ruleset_hash() -> str:
-    """sha256 estável do catálogo de regras (id, severidade, OWASP/CWE, texto)."""
+    """``sha256:<hex>`` estável do catálogo de regras (id, severidade, OWASP/CWE, texto).
+
+    O prefixo ``sha256:`` é auto-descritivo (o cliente sabe qual algoritmo recomputar sem
+    adivinhar pelo comprimento) e uniforme na suíte. A versão do schema do catálogo
+    (``RULESET_SCHEMA``) entra no material hasheado: reformar o catálogo muda o hash.
+    """
     itens = [
         [
             rule.id,
@@ -98,12 +123,12 @@ def ruleset_hash() -> str:
         for rule in sorted(all_rules(), key=lambda r: r.id)
     ]
     blob = json.dumps(
-        {"owasp_edition": OWASP_EDITION, "rules": itens},
+        {"schema": RULESET_SCHEMA, "owasp_edition": OWASP_EDITION, "rules": itens},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def artifact_sha256(document: dict[str, Any]) -> str:

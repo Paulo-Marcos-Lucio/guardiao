@@ -40,6 +40,8 @@ jobs:
       - run: ruff format --check .
       - run: mypy src
       - run: pytest
+      # Badge de testes = número gerado, não digitado: reprova se o SVG divergir do real.
+      - run: python scripts/check_test_count.py
 
   autoauditoria:
     name: Guardião varre o próprio código

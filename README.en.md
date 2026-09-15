@@ -18,7 +18,7 @@
 [![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
 [![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
-[![186 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-engineering-quality--method)
+[![293 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-engineering-quality--method)
 [![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-engineering-quality--method)
 
 </div>
@@ -95,8 +95,10 @@ Every finding includes **severity**, **redacted evidence**, a **recommendation**
 > recalibration knocked the false positives on `encode/httpx` down from 25 to 4 (tying gitleaks on
 > the real keys in `psf/requests`), with the corpus recall preserved.
 >
-> The calibration that produces these numbers **lives in this repository**; there is no secret engine.
-> Concrete example of what it fixed: a `sk_live_…` key that happens to contain the sequence
+> The calibration that produces these numbers **lives in this repository** — every filter is
+> auditable and no number here is copied. Where the public passive detection stops and Pro's
+> **active confirmation** begins is in the [Pro Version](#-pro-version-private--active-confirmation--human-guidance)
+> section, below. Concrete example of what the calibration fixed: a `sk_live_…` key that happens to contain the sequence
 > `abcdefgh` **is no longer swallowed** by the placeholder filter — previously a CRITICAL
 > credential would silently disappear for coinciding with 8 letters from a documentation example.
 >
@@ -309,24 +311,30 @@ reach, run the scan on the origin repository itself.
 
 ---
 
-## 🔓 Pro Version (private) — it's a SERVICE, not another engine
+## 🔓 Pro Version (private) — active confirmation + human guidance
 
-Being direct, because honesty is the product here: **the tool in this repo is already the
-calibrated engine, and it's the most complete one that exists.** There is no stronger engine
-hidden away in private — nor a better version anywhere else. What you run for free is exactly
-what I run under contract. Pro isn't another detection engine; it's **human work that I
-personally conduct** on top of this engine:
+Being direct, because honesty is the product here: **the tool in this repository does complete,
+honest passive detection for what it sets out to do** — provider regex + entropy + BR validator,
+with the low false-positive rate measured in [`bench/`](./bench), all open and auditable. The
+**Pro** edition (private) adds **active-confirmation code that isn't here**: a **tri-state live
+verifier** (`--validar`, read-only and under explicit authorization) that tells a *still-active*
+secret from a *already-revoked* one; **offline structural checksums**; and a **BR-PII taxonomy with
+check digits** (CPF/CNPJ/PIX/CNH/voter-ID/PIS/CNS). The differentiator isn't "more rules" — it's
+**auditable confirm-don't-exploit + low-FP-with-a-number + BR/LGPD focus** — wrapped in **human work
+that I personally conduct**:
 
 | | **Public tool (you run it)** | **Pro / service (I conduct it with you)** |
 | --- | --- | --- |
-| **Detection engine** | This engine — recall 13/14 on the [`bench/`](./bench) corpus, zero false positives | **The same engine, not a single line more.** What you pay for is the guidance, not the engine |
+| **Detection** | This engine — complete **passive** detection: recall 13/14 on the [`bench/`](./bench) corpus, zero false positives | **The same passive detection** + **active confirmation** (live verifier `--validar`, offline checksum, BR-PII with check digits) that **does not live in the public repository** |
 | **Scope** | The path or repository you point it at | **The entire organization**: every repository and **the entire Git history**, not just `HEAD` |
 | **Triage** | You read the report and adjudicate each finding | I **triage every finding** as true positive or false positive and hand you the already-clean list — no dumping noise on your team |
 | **Rotation** | The tool finds it; rotating is on you (it does *not* rotate) | **Per-provider rotation plan**, step by step, + **a retest that proves** the credential is out of circulation |
 | **Evidence (LGPD art. 46)** | Dated JSON/SARIF that you generate yourself | Dated report: what existed, what was rotated, and confirmation that the old key no longer responds |
-| **What changes** | Complete, open, and auditable code | **Human-conducted work** — not a secret engine |
+| **What changes** | Honest passive detection, complete and auditable code | **Active confirmation + human guidance** — proof that the secret still responds (read-only, confirm-don't-exploit), not just that it exists |
 
-> **Have repositories or a long Git history that's never been audited?** I conduct the scan, triage, and rotation with you — using the **same engine that's in this repository**.
+> **Have repositories or a long Git history that's never been audited?** I conduct the scan, triage,
+> and rotation with you — the same passive detection from this repository, now with the **active
+> confirmation** layer that only runs in the service. Contact: **contatopml26@gmail.com**.
 
 <div align="center">
 
@@ -386,7 +394,7 @@ Design principles:
 
 ## 🔬 Engineering quality & method
 
-**Gates (measured in this repo on 2026-08-04, not copied):** 183 tests (1 skip), including *property-based* tests (Hypothesis) that assert class invariants · **95%** coverage (`--cov-fail-under=90`, gate set *below* the measured value to be anti-regression, not vanity) · `mypy --strict` clean (22 files) · `ruff` lint + format clean (42 files) · CI on a **Python 3.10 / 3.11 / 3.12 / 3.13** matrix.
+**Gates (measured in this repo on 2026-09-15, not copied):** 293 tests (1 skip), including *property-based* tests (Hypothesis) that assert class invariants · **95%** coverage (`--cov-fail-under=90`, gate set *below* the measured value to be anti-regression, not vanity) · `mypy --strict` clean (23 files) · `ruff` lint + format clean (63 files) · CI on a **Python 3.10 / 3.11 / 3.12 / 3.13** matrix.
 
 **A test that bites the hand that would undo it.** The anti-false-positive calibration lives under guard: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) turns **red** if a precision filter starts swallowing a real secret again — it reaffirms that AWS, `ghp_`, entropy, and private-key detection keep firing. And `test_toda_regra_do_catalogo_tem_caso_positivo` fails the CI if a new rule is born without a positive test case: "rule with no test" and "rule that never matches anything" become indistinguishable — and both get blocked. Dogfooding: `test_source_tree_is_clean` scans `src/` itself.
 
