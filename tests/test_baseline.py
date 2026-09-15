@@ -5,7 +5,7 @@ from pathlib import Path
 
 from guardiao.core.baseline import apply_baseline, load_baseline, save_baseline
 from guardiao.core.engine import Scanner
-from guardiao.core.redaction import KEEP_PUBLICADO, redact
+from guardiao.core.redaction import redact_publicado
 
 
 def test_baseline_suppresses_known_but_keeps_new(planted_dir: Path, tmp_path: Path) -> None:
@@ -56,8 +56,8 @@ def test_baseline_nao_expoe_mais_de_2_chars_por_ponta(planted_dir: Path, tmp_pat
         assert segredo not in texto
         # Nenhuma ponta mais larga que a publicável: se 3+3 aparecesse, 4+4 (o do
         # console, que era o publicado) também apareceria.
-        assert redact(segredo, keep=3) not in texto, f"pontas largas de {achado.rule_id}"
-        assert redact(segredo, keep=KEEP_PUBLICADO) in texto
+        assert redact_publicado(segredo, keep=3) not in texto, f"pontas largas de {achado.rule_id}"
+        assert redact_publicado(segredo) in texto
     assert "AK…PD" in texto  # identificar a credencial continua possível
 
 

@@ -16,7 +16,7 @@
 [![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
 [![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
-[![293 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
+[![297 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
 [![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-qualidade-de-engenharia--método)
 
 </div>
@@ -395,7 +395,7 @@ Princípios de projeto:
 
 ## 🔬 Qualidade de engenharia & método
 
-**Portões (medidos neste repo em 2026-09-15, não copiados):** 293 testes (1 skip), incluindo *property-based* (Hypothesis) que afirmam invariantes de classe · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (23 arquivos) · `ruff` lint + format limpo (63 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
+**Portões (medidos neste repo em 2026-09-15, não copiados):** 297 testes (1 skip), incluindo *property-based* (Hypothesis) que afirmam invariantes de classe · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (23 arquivos) · `ruff` lint + format limpo (64 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
 
 **Teste que morde a mão que o desfaz.** A calibração anti-falso-positivo vive sob guarda: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) fica **vermelho** se um filtro de precisão voltar a engolir um segredo real — reafirma que AWS, `ghp_`, entropia e chave privada continuam disparando. E `test_toda_regra_do_catalogo_tem_caso_positivo` reprova o CI se uma regra nova nascer sem caso positivo: "regra sem teste" e "regra que nunca casa nada" passam a ser indistinguíveis — e barradas. Dogfooding: `test_source_tree_is_clean` varre o próprio `src/`.
 

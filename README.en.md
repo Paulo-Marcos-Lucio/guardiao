@@ -18,7 +18,7 @@
 [![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
 [![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
-[![293 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-engineering-quality--method)
+[![297 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-engineering-quality--method)
 [![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-engineering-quality--method)
 
 </div>
@@ -394,7 +394,7 @@ Design principles:
 
 ## 🔬 Engineering quality & method
 
-**Gates (measured in this repo on 2026-09-15, not copied):** 293 tests (1 skip), including *property-based* tests (Hypothesis) that assert class invariants · **95%** coverage (`--cov-fail-under=90`, gate set *below* the measured value to be anti-regression, not vanity) · `mypy --strict` clean (23 files) · `ruff` lint + format clean (63 files) · CI on a **Python 3.10 / 3.11 / 3.12 / 3.13** matrix.
+**Gates (measured in this repo on 2026-09-15, not copied):** 297 tests (1 skip), including *property-based* tests (Hypothesis) that assert class invariants · **95%** coverage (`--cov-fail-under=90`, gate set *below* the measured value to be anti-regression, not vanity) · `mypy --strict` clean (23 files) · `ruff` lint + format clean (64 files) · CI on a **Python 3.10 / 3.11 / 3.12 / 3.13** matrix.
 
 **A test that bites the hand that would undo it.** The anti-false-positive calibration lives under guard: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) turns **red** if a precision filter starts swallowing a real secret again — it reaffirms that AWS, `ghp_`, entropy, and private-key detection keep firing. And `test_toda_regra_do_catalogo_tem_caso_positivo` fails the CI if a new rule is born without a positive test case: "rule with no test" and "rule that never matches anything" become indistinguishable — and both get blocked. Dogfooding: `test_source_tree_is_clean` scans `src/` itself.
 

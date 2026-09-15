@@ -36,3 +36,42 @@ def test_email_pessoal_nunca_em_arquivo_versionado() -> None:
         if _PESSOAL in c.read_text(encoding="utf-8", errors="ignore")
     ]
     assert not ofensores, f"e-mail pessoal vazou em: {ofensores}; use {_PUBLICO}"
+
+
+# --- Classe A: posicionamento honesto do README público -----------------------------
+#
+# A edição Pro tem detecção EXCLUSIVA (verificador-vivo `--validar`, checksum estrutural
+# offline, taxonomia BR-PII com dígito verificador) que não está no `main`. Enquanto isso
+# for verdade, o README público NÃO pode afirmar em absoluto que "não há motor escondido"
+# / "a mesma engine, sem uma linha a mais" — seria uma promessa falsa ao cliente. A rodada
+# anterior corrigiu o TEXTO; este teste TRAVA a classe: se a frase absolutista reaparecer
+# num README público, o CI reprova antes de qualquer push.
+_FRASES_ABSOLUTISTAS_PROIBIDAS = [
+    "sem uma linha a mais",
+    "não há motor",
+    "nao ha motor",
+    "nem checagem que só nasce",
+    "nem checagem que so nasce",
+    "a mesma engine",
+    "engine idêntica",
+    "engine identica",
+    "no resto da suíte a engine pública é a mesma",
+    "nenhuma capacidade escondida",
+]
+_READMES_PUBLICOS = ("README.md", "README.en.md")
+
+
+def test_readme_publico_nao_afirma_engine_identica() -> None:
+    ofensores: list[str] = []
+    for nome in _READMES_PUBLICOS:
+        caminho = _RAIZ / nome
+        if not caminho.is_file():
+            continue
+        texto = caminho.read_text(encoding="utf-8", errors="ignore").lower()
+        for frase in _FRASES_ABSOLUTISTAS_PROIBIDAS:
+            if frase.lower() in texto:
+                ofensores.append(f"{nome}: {frase!r}")
+    assert not ofensores, (
+        "README público afirma absolutismo de 'engine idêntica' enquanto o Pro tem "
+        f"detecção exclusiva: {ofensores}"
+    )

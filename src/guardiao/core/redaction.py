@@ -20,7 +20,12 @@ KEEP_PUBLICADO = 2
 
 
 def redact(secret: str, *, keep: int = 4) -> str:
-    """Mascara um segredo preservando apenas as pontas."""
+    """Mascara um segredo preservando apenas as pontas (caminho do CONSOLE, 4+4).
+
+    Não é o caminho publicado: o console morre na estação de quem triou e revela mais
+    para o dono reconhecer *qual* credencial é, de relance. O que sai para artefato
+    versionado/publicado passa por :func:`redact_publicado`.
+    """
     s = secret.strip()
     n = len(s)
     if n == 0:
@@ -29,6 +34,26 @@ def redact(secret: str, *, keep: int = 4) -> str:
     if n <= 2 * keep + 4:
         return s[0] + "…"
     return f"{s[:keep]}…{s[-keep:]}"
+
+
+def redact_publicado(secret: str, *, keep: int = KEEP_PUBLICADO, mark: str = "…") -> str:
+    """Ocultação de ARTEFATO PUBLICADO (baseline versionado, SARIF do Code Scanning).
+
+    Esta é a **receita canônica da suíte AppSec**: idêntica nas quatro ferramentas, para
+    o cliente conferir os quatro laudos com UMA regra só. A invariante de paridade está
+    travada por ``tests/test_paridade_receita_suite.py``, que importa ESTA função (a de
+    produção) e prova que ela bate com o valor-ouro compartilhado.
+
+    Mostra no máximo ``keep`` caracteres por ponta (padrão :data:`KEEP_PUBLICADO` = 2);
+    um segredo curto demais para exibir as duas pontas sem elas se tocarem
+    (``len(s) <= 2 * keep``) vira **só** o marcador ``…`` — não vaza nem uma ponta nem o
+    comprimento. Difere de propósito de :func:`redact` (console): o publicado é lido por
+    todo mundo com acesso ao repositório, então é o caminho mais estrito.
+    """
+    s = secret.strip()
+    if len(s) <= 2 * keep:
+        return mark
+    return f"{s[:keep]}{mark}{s[-keep:]}"
 
 
 def redact_spans(line: str, spans: Iterable[tuple[int, int, str]], *, keep: int = 4) -> str:

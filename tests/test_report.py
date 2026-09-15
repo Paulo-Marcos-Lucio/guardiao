@@ -8,7 +8,7 @@ from rich.console import Console
 
 from guardiao.core.engine import Scanner
 from guardiao.core.models import Severity
-from guardiao.core.redaction import KEEP_PUBLICADO, redact
+from guardiao.core.redaction import redact_publicado
 from guardiao.report import console as console_report
 from guardiao.report.json_report import SCHEMA, to_document, to_json
 from guardiao.report.sarif import to_sarif
@@ -157,8 +157,10 @@ def test_sarif_nao_expoe_mais_de_2_chars_por_ponta(planted_dir: Path) -> None:
         assert segredo not in payload
         # Nenhuma ponta mais larga que a publicável: se 3+3 aparecesse, 4+4 (o do
         # console, que era o publicado) também apareceria.
-        assert redact(segredo, keep=3) not in payload, f"pontas largas de {achado.rule_id}"
-        assert redact(segredo, keep=KEEP_PUBLICADO) in payload
+        assert redact_publicado(segredo, keep=3) not in payload, (
+            f"pontas largas de {achado.rule_id}"
+        )
+        assert redact_publicado(segredo) in payload
     assert "AK…PD" in payload  # identificar a credencial continua possível
 
 

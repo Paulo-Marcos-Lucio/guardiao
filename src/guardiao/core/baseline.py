@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from guardiao.core.models import Finding
-from guardiao.core.redaction import KEEP_PUBLICADO, redact
+from guardiao.core.redaction import redact_publicado
 
 BASELINE_VERSION = 1
 
@@ -38,7 +38,7 @@ def build_baseline_document(findings: list[Finding]) -> dict[str, object]:
             "rule": finding.rule_id,
             "path": finding.location.path,
             "line": finding.location.line,
-            "redacted": redact(finding.secret, keep=KEEP_PUBLICADO),
+            "redacted": redact_publicado(finding.secret),
             "severity": finding.severity.value,
         }
         for finding in findings
