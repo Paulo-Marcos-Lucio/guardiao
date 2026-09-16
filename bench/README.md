@@ -49,6 +49,34 @@ contexto nenhum** (sem nome de variável, sem chave, sem provedor). É uma escol
 calibração: detectar entropia solta sem contexto é a principal fonte de ruído em código real.
 **Está registrado aqui como o custo consciente de manter o falso-positivo baixo.**
 
+## Desempenho da varredura de histórico (`--git-history`)
+
+```bash
+python bench/tempo.py
+```
+
+`tempo.py` **gera** um repositório git sintético (não clona um de fora): autor, data,
+conteúdo e mensagem de cada commit são determinísticos por índice, nunca pelo relógio —
+duas execuções, em máquinas diferentes, produzem o **mesmo grafo de objetos e o mesmo
+SHA de HEAD**. É o que "repositório fixado por SHA" quer dizer aqui: a régua é uma função
+pura do script, não um artefato de rede (clonar algo externo tornaria a medição — e o
+próprio CI — dependente de conectividade) nem do relógio da máquina.
+
+### Medição de referência
+
+Medido em 2026-08-24, ambiente de execução em nuvem (Claude Code on the web), Linux
+x86_64, 4 vCPU, Python 3.11.15:
+
+| Repositório sintético | Commits | SHA de HEAD | Tempo de `--git-history` |
+|---|---|---|---|
+| gerado por `bench/tempo.py` | 400 | `9ce797149670c187c6ae224ead702e2327ca9bf4` | **0,21 s** |
+
+`tests/test_bench_tempo.py::test_git_history_nao_regride_uma_ordem_de_grandeza` roda a
+mesma medição e falha se o tempo passar de **5 s** (~24x a referência acima) — folga
+larga o bastante para não reagir a variação normal de máquina/CI, apertada o bastante
+para pegar uma regressão de ordem de grandeza (ex.: um `git cat-file` por objeto voltando
+a rodar em vez do `--batch-all-objects` único que `sources/githistory.py` documenta).
+
 ## Regra da casa
 
 Quem alterar detecção **roda esta bateria antes e depois** e registra os dois números no CHANGELOG.
