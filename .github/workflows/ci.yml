@@ -63,7 +63,7 @@ jobs:
         # Varre apenas src/ — tests/ contém segredos sintéticos de propósito.
         run: guardiao scan src -f sarif -o guardiao.sarif --fail-on high
       - name: Publica SARIF no Code Scanning
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v3
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v3
         if: always()
         continue-on-error: true
         with:
