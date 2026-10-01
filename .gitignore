@@ -32,4 +32,14 @@ gbd.json
 # Fixtures com segredo em formato de produção: gerados por `python bench/gerar.py`.
 # Versionar o literal faria o push protection do GitHub recusar — e ele estaria certo.
 bench/positivos/stripe.js
+bench/positivos/github_pat_finegrained.py
+bench/positivos/gitlab.py
+bench/positivos/npm.py
+bench/positivos/slack_webhook.py
+bench/positivos/sendgrid.py
+bench/positivos/twilio.py
+bench/positivos/digitalocean.env
+bench/positivos/huggingface.py
+bench/positivos/mercadopago.py
+bench/positivos/shopify.py
 bench/resultado.json
