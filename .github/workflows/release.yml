@@ -1,0 +1,81 @@
+name: Release
+
+# Dispara em tag `v*.*.*`. Constrói sdist + wheel, valida os metadados com
+# `twine check` e, só então, publica no PyPI via *trusted publishing* (OIDC) —
+# sem token de longa duração armazenado no repositório.
+#
+# Por que não publica sozinho ainda: o job `publicar` roda atrás do
+# environment `pypi`, que não existe neste repositório até o Paulo criá-lo
+# (Settings → Environments) e cadastrar o *trusted publisher* correspondente
+# no PyPI (pypi.org → Publishing). Sem esse par configurado dos dois lados, o
+# job falha ao tentar publicar — não existe caminho para um push acidental.
+# `estado/HANDOFF-2026-08-05…md §2` já registrava o guardiao como "PyPI
+# LIVRE", mas dependente de decisão humana explícita; este workflow prepara o
+# caminho sem tomar essa decisão por ele.
+#
+# Validação sem publicar: `workflow_dispatch` builda e roda `twine check` em
+# qualquer branch, sem nunca chegar ao job de publicação (guarda de `if`
+# abaixo) — é o dry-run que o item pede, repetível a qualquer momento.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build · twine check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - name: Build sdist e wheel
+        run: python -m build
+      - name: Valida metadados do pacote
+        # O que barra um `long_description` malformado ou um README com RST
+        # quebrado — a classe de erro que só aparece quando o PyPI já
+        # rejeitou o upload, se não for pega antes.
+        run: twine check --strict dist/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publicar:
+    name: Publica no PyPI (trusted publishing)
+    needs: build
+    # Guarda dupla: só roda em push de tag real, nunca em workflow_dispatch
+    # (que existe justamente para validar sem publicar) nem em PR.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/guardiao
+    permissions:
+      contents: read
+      id-token: write # exigido pelo trusted publishing (OIDC); nenhum token estático em segredo
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: Publica via OIDC
+        uses: pypa/gh-action-pypi-publish@ec4db0b4ddc65acdf4bff5fa45ac92d78b56bdf0 # v1.9.0
