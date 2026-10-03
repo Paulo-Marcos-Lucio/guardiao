@@ -965,7 +965,7 @@ _VOGAL = re.compile(r"[aeiouyAEIOUY]")
 _URL_ENCODED = re.compile(r"%[0-9A-Fa-f]{2}")
 
 
-def _parece_identificador_de_codigo(token: str) -> bool:
+def parece_identificador(token: str) -> bool:
     """Token com estrutura de identificador de código (snake_case/kebab/camelCase de
     palavras legíveis) — NUNCA é um segredo aleatório.
 
@@ -1075,7 +1075,7 @@ def _e_forma_estrutural_nao_segredo(value: str) -> bool:
     # um SEGREDO, não de um enum — e não pode ser cegado por uma leitura camelCase forçada.
     if not any(c in value for c in "-_.:"):
         return False
-    if _parece_identificador_de_codigo(value):
+    if parece_identificador(value):
         return True  # `X-Company-ApiKey`: segmentos são palavras legíveis
     if _ENUM_SEGMENTADO.match(value):
         segmentos = re.split(r"[.:_\-]", value)
@@ -1171,7 +1171,7 @@ def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> 
         return False
     if is_probable_hash_or_id(token):
         return False
-    if _parece_identificador_de_codigo(token):
+    if parece_identificador(token):
         return False  # identificador de código (`cert_encrypted_private_key_file`) não é segredo
     if is_high_entropy(token):
         return True
