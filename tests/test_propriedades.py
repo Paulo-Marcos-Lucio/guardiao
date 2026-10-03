@@ -11,12 +11,13 @@ de regressão fica barrada no CI, para sempre.
 from __future__ import annotations
 
 import base64
+import secrets
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import looks_like_secret_token
+from guardiao.rules.definitions import looks_like_secret_token, parece_identificador
 from guardiao.sources.files import decode_text_bytes
 
 # Palavras legíveis (com vogal) para montar identificadores de código sintéticos.
@@ -123,6 +124,35 @@ def test_identificador_de_codigo_nunca_e_segredo(partes: list[str], sep: str) ->
     if len(ident) < 24:  # a regra de entropia só considera cadeias longas
         return
     assert not looks_like_secret_token(ident), f"identificador {ident!r} tratado como segredo"
+
+
+@settings(max_examples=300)
+@given(
+    partes=st.lists(st.sampled_from(_PALAVRAS), min_size=2, max_size=6),
+    estilo=st.sampled_from(["snake", "kebab", "camel"]),
+)
+def test_parece_identificador_reconhece_snake_e_camel_case(partes: list[str], estilo: str) -> None:
+    """INVARIANTE (Camada B): ``parece_identificador`` reconhece QUALQUER identificador de
+    código — snake_case, kebab-case ou camelCase — formado por 2+ palavras legíveis, não só o
+    exemplo `cert_encrypted_private_key_file` do relatório original.
+    """
+    if estilo == "snake":
+        ident = "_".join(partes)
+    elif estilo == "kebab":
+        ident = "-".join(partes)
+    else:
+        ident = partes[0] + "".join(p.capitalize() for p in partes[1:])
+    assert parece_identificador(ident), f"identificador {estilo} {ident!r} não reconhecido"
+
+
+@settings(max_examples=300)
+@given(nbytes=st.integers(min_value=16, max_value=64))
+def test_parece_identificador_nunca_aceita_token_aleatorio(nbytes: int) -> None:
+    """INVARIANTE (Camada B): um token aleatório (``secrets.token_urlsafe``) nunca é
+    classificado como identificador de código — a classe inteira do segredo gerado por CSPRNG,
+    não só a amostra isolada que apareceu no relatório original."""
+    token = secrets.token_urlsafe(nbytes)
+    assert not parece_identificador(token), f"token aleatório {token!r} tratado como identificador"
 
 
 @settings(max_examples=200)

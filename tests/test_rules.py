@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 
 import pytest
 
 from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import OWASP_EDITION, looks_like_placeholder
+from guardiao.rules.definitions import OWASP_EDITION, looks_like_placeholder, parece_identificador
 from guardiao.rules.registry import all_rules
 from tests.conftest import (
     ANTHROPIC_KEY,
@@ -145,6 +146,14 @@ def test_mercadopago_public_key_is_not_flagged() -> None:
 def test_mercadopago_access_token_is_flagged() -> None:
     ids = _rule_ids(f'access_token = "{MERCADOPAGO_TOKEN}"')
     assert "mercadopago-access-token" in ids
+
+
+def test_parece_identificador_reconhece_nome_de_campo_e_rejeita_token_aleatorio() -> None:
+    """Camada B (universal): um nome de campo de código real (`cert_encrypted_private_key_file`,
+    o FP de campo que motivou a heurística) é identificador; um token gerado por
+    `secrets.token_urlsafe` não é — nunca se decompõe em sub-palavras legíveis."""
+    assert parece_identificador("cert_encrypted_private_key_file") is True
+    assert parece_identificador(secrets.token_urlsafe(32)) is False
 
 
 def test_all_rules_have_metadata() -> None:
