@@ -140,6 +140,38 @@ def test_assinatura_binaria_nunca_e_lida_como_texto(ruido: bytes, magic: bytes) 
     assert decode_text_bytes(magic + ruido) is None, f"assinatura {magic!r} lida como texto"
 
 
+#: 20 consoantes MAIÚSCULAS (sem vogal) + 10 dígitos + 2 símbolos = 32 caracteres distintos.
+#: Qualquer reordenação tem a MESMA entropia de Shannon (multiset fixo) — só muda a ordem —
+#: e nenhum segmento que `_parece_identificador_de_codigo` possa recortar (por separador OU
+#: por fronteira dígito/minúscula→MAIÚSCULA) pode conter vogal, logo nenhum segmento passa
+#: a ser lido como "palavra legível": a função nunca classifica isto como identificador,
+#: para NENHUMA ordem. Sem vogal, sem letra minúscula (não há fronteira camelCase a recortar
+#: do jeito que uma permutação de letras com vogal recortaria).
+_ALFABETO_SEM_SEPARADOR = list("BCDFGHJKLMNPQRSTVWXZ0123456789!@")
+
+
+@settings(max_examples=200)
+@given(ordem=st.permutations(_ALFABETO_SEM_SEPARADOR))
+def test_valor_literal_aleatorio_continua_sendo_achado(ordem: list[str]) -> None:
+    """INVARIANTE 4 — DUAL de `test_identificador_de_codigo_nunca_e_segredo`.
+
+    O fechamento do FP de `cert_encrypted_private_key_file` ensinou `looks_like_secret_token`
+    a reconhecer ESTRUTURA de identificador (sub-palavras legíveis separadas por `_`/`-`) e
+    devolver `False` para ela. O risco simétrico: se esse reconhecimento fosse implementado
+    largo demais — por exemplo, rebaixando o piso de entropia em vez de exigir sub-palavra
+    LEGÍVEL (com vogal) —, um valor aleatório comum (sem nenhuma palavra de verdade dentro)
+    passaria a ser classificado como não-segredo também, e segredos reais calariam. Este teste
+    tranca a OUTRA ponta: qualquer permutação dos MESMOS 32 caracteres (sem vogal, logo sem
+    chance de qualquer segmento ser lido como palavra) continua (a) positiva em
+    `looks_like_secret_token` e (b) virando achado no scanner fim-a-fim, quando atribuída a
+    uma chave de contexto de segredo.
+    """
+    valor = "".join(ordem)
+    assert looks_like_secret_token(valor), f"valor literal {valor!r} não foi tratado como segredo"
+    achados = list(Scanner().scan_text("config.py", f'token = "{valor}"\n'))
+    assert achados, f"valor literal {valor!r} não gerou achado no scanner"
+
+
 @settings(max_examples=200)
 @given(
     esquema=st.sampled_from(["http", "https"]),
