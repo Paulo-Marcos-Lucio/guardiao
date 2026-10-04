@@ -6,6 +6,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ## [Não lançado]
 
+### Corrigido — basic-auth-url contra senha percent-encoded (corpus WHATWG)
+
+`tests/models/whatwg.json` (`urltestdata.json` do web-platform-tests, citado desde a
+calibração 0.5.0 como origem da classe de FP de `basic-auth-url` mas nunca versionado)
+passou a ser varrido de ponta a ponta. Rodar o corpus real revelou 2 falso-positivos que
+os 2 exemplos isolados do critério de aceite não cobriam: `http://foo:%F0%9F%92%A9@example.com/bar`
+e `http://a:%F0%9F%98%80x@host/` — senha percent-encoded (emoji) soma 3 classes de caractere
+(dígito + MAIÚSCULA + `%`) e passava pelo ramo "senha parece real" de `_pw_looks_real`, mesmo
+contra host de FORMA de domínio (fora do ramo de host degenerado já coberto). `_pw_looks_real`
+passa a aplicar o mesmo filtro `_predominantemente_url_encoded` que `looks_like_secret_value`
+já usava (G02c) — uma classe, dois pontos de entrada, um só filtro.
+
 ### Adicionado — detecção (auditoria adversarial de 2026-09-08)
 
 Bateria empírica de causa-raiz, cada item travado por invariante property-based:
