@@ -197,22 +197,29 @@ def test_percent_encoded_pontuacao_pura_nunca_e_segredo(pontuacao: str) -> None:
 
 @settings(max_examples=200)
 @given(
-    minusculas=st.text(alphabet=string.ascii_lowercase, min_size=3, max_size=5),
-    maiusculas=st.text(alphabet=string.ascii_uppercase, min_size=3, max_size=5),
-    digitos=st.text(alphabet=string.digits, min_size=2, max_size=4),
-    simbolo=st.sampled_from(_PONTUACAO_CODIFICAVEL),
+    minuscula=st.sampled_from(string.ascii_lowercase),
+    maiuscula=st.sampled_from(string.ascii_uppercase),
+    digito=st.sampled_from(string.digits),
+    simbolos=st.lists(
+        st.sampled_from(_PONTUACAO_CODIFICAVEL), min_size=4, max_size=10, unique=True
+    ),
 )
 def test_segredo_real_url_encoded_ainda_e_detectado(
-    minusculas: str, maiusculas: str, digitos: str, simbolo: str
+    minuscula: str, maiuscula: str, digito: str, simbolos: list[str]
 ) -> None:
-    """CONTRAPROVA da invariante 7: um segredo real (4 classes de caractere depois de
-    decodificado) guardado URL-encoded continua disparando `generic-assignment`.
+    """CONTRAPROVA da invariante 7: um segredo real (4 classes de caractere, com a
+    pontuação dominante o bastante para também cair no ramo de decodificação) guardado
+    URL-encoded continua disparando `generic-assignment`.
 
     Decodificar antes de classificar fecha o falso-positivo da pontuação pura sem abrir
     o falso-negativo oposto: um segredo de verdade armazenado percent-encoded (comum em
-    `.env`/query string) não pode ficar cego só por estar codificado.
+    `.env`/query string) não pode ficar cego só por estar codificado. Só UM caractere de
+    cada classe alfanumérica (o resto é pontuação) garante que nunca se forma, por acaso,
+    uma palavra de 4+ letras que colidiria com `PLACEHOLDER_SUBSTRINGS`/marcador de teste;
+    os símbolos são DISTINTOS (sem repetição) para não acionar o filtro de "caractere
+    dominante" (`_aleatoriedade_refutada`) — que é outra invariante, não esta.
     """
-    decodificado = minusculas + maiusculas + digitos + simbolo
+    decodificado = minuscula + maiuscula + digito + "".join(simbolos)
     valor = quote(decodificado, safe="")
     assert looks_like_secret_value(valor), (
         f"segredo {decodificado!r} url-encoded ({valor!r}) não detectado"
