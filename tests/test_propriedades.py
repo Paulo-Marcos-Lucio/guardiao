@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import base64
 
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
@@ -138,6 +138,27 @@ def test_assinatura_binaria_nunca_e_lida_como_texto(ruido: bytes, magic: bytes) 
     era lido como texto e o corpo comprimido rendia achado de entropia.
     """
     assert decode_text_bytes(magic + ruido) is None, f"assinatura {magic!r} lida como texto"
+
+
+# Assinaturas binárias que começam com bytes ASCII imprimíveis — as únicas capazes de
+# colidir por acaso com texto gerado no alfabeto 0x20-0x7E da invariante 5b.
+_MAGIC_BINARIO_ASCII = (b"%PDF", b"%!PS", b"GIF87a", b"GIF89a", b"BM", b"OggS", b"fLaC", b"ustar")
+
+
+@settings(max_examples=200)
+@given(corpo=st.text(alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x7E), max_size=2048))
+def test_ascii_nunca_binario(corpo: str) -> None:
+    """INVARIANTE 5b (complementar à 5): texto ASCII puro — sem NUL, sem assinatura de
+    contêiner binário no início — nunca é tratado como binário, e o texto decodificado
+    é EXATAMENTE o original (nenhum byte perdido na volta).
+
+    A invariante 5 trava o lado "binário nunca é lido como texto"; sem esta, a correção
+    daquela classe (checar assinatura ANTES do teste de NUL) poderia ter ficado gulosa
+    demais e cegar texto ASCII legítimo que só por acaso carregasse algum byte ambíguo.
+    """
+    raw = corpo.encode("ascii")
+    assume(not raw.startswith(_MAGIC_BINARIO_ASCII))
+    assert decode_text_bytes(raw) == corpo, f"ASCII {corpo!r} foi tratado como binário"
 
 
 @settings(max_examples=200)
