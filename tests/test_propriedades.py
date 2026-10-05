@@ -11,12 +11,14 @@ de regressão fica barrada no CI, para sempre.
 from __future__ import annotations
 
 import base64
+import string
+from urllib.parse import quote
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import looks_like_secret_token
+from guardiao.rules.definitions import looks_like_secret_token, looks_like_secret_value
 from guardiao.sources.files import decode_text_bytes
 
 # Palavras legíveis (com vogal) para montar identificadores de código sintéticos.
@@ -163,3 +165,70 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+# Pontuação que `urllib.parse.quote(..., safe="")` sempre codifica (letra/dígito/`-._~`
+# nunca entram aqui — ver RFC 3986, "unreserved characters").
+_PONTUACAO_CODIFICAVEL = "!\"#$%&'()*+,/:;<=>?@[\\]^`{|}"
+
+
+@settings(max_examples=200)
+@given(pontuacao=st.text(alphabet=_PONTUACAO_CODIFICAVEL, min_size=1, max_size=8))
+def test_percent_encoded_pontuacao_pura_nunca_e_segredo(pontuacao: str) -> None:
+    """INVARIANTE 7: um valor URL-encoded que decodifica para pontuação pura (sem letra
+    nem dígito) nunca dispara `generic-assignment`.
+
+    Classe do FP de campo (suíte de conformidade WHATWG): `"password": "%60%7B%7D"`
+    (decodificado = pontuação pura "`{}") e `"password": "%F0%9F%92%A9"` (emoji). A
+    contraprova ao lado (`test_segredo_real_url_encoded_ainda_e_detectado`) garante que
+    isto não virou um cheque em branco para qualquer valor URL-encoded.
+    """
+    valor = quote(pontuacao, safe="")
+    assert not looks_like_secret_value(valor), (
+        f"{pontuacao!r} url-encoded ({valor!r}) parece segredo"
+    )
+    achados = [
+        a
+        for a in Scanner().scan_text("config.py", f'password = "{valor}"\n')
+        if a.rule_id == "generic-assignment"
+    ]
+    assert achados == [], f"{pontuacao!r} url-encoded ({valor!r}) virou achado generic-assignment"
+
+
+@settings(max_examples=200)
+@given(
+    minuscula=st.sampled_from(string.ascii_lowercase),
+    maiuscula=st.sampled_from(string.ascii_uppercase),
+    digito=st.sampled_from(string.digits),
+    simbolos=st.lists(
+        st.sampled_from(_PONTUACAO_CODIFICAVEL), min_size=4, max_size=10, unique=True
+    ),
+)
+def test_segredo_real_url_encoded_ainda_e_detectado(
+    minuscula: str, maiuscula: str, digito: str, simbolos: list[str]
+) -> None:
+    """CONTRAPROVA da invariante 7: um segredo real (4 classes de caractere, com a
+    pontuação dominante o bastante para também cair no ramo de decodificação) guardado
+    URL-encoded continua disparando `generic-assignment`.
+
+    Decodificar antes de classificar fecha o falso-positivo da pontuação pura sem abrir
+    o falso-negativo oposto: um segredo de verdade armazenado percent-encoded (comum em
+    `.env`/query string) não pode ficar cego só por estar codificado. Só UM caractere de
+    cada classe alfanumérica (o resto é pontuação) garante que nunca se forma, por acaso,
+    uma palavra de 4+ letras que colidiria com `PLACEHOLDER_SUBSTRINGS`/marcador de teste;
+    os símbolos são DISTINTOS (sem repetição) para não acionar o filtro de "caractere
+    dominante" (`_aleatoriedade_refutada`) — que é outra invariante, não esta.
+    """
+    decodificado = minuscula + maiuscula + digito + "".join(simbolos)
+    valor = quote(decodificado, safe="")
+    assert looks_like_secret_value(valor), (
+        f"segredo {decodificado!r} url-encoded ({valor!r}) não detectado"
+    )
+    achados = [
+        a
+        for a in Scanner().scan_text("config.py", f'password = "{valor}"\n')
+        if a.rule_id == "generic-assignment"
+    ]
+    assert achados, (
+        f"segredo {decodificado!r} url-encoded ({valor!r}) não gerou achado generic-assignment"
+    )

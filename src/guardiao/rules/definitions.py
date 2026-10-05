@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy, shannon_entropy
 from guardiao.core.models import Severity
@@ -992,12 +992,29 @@ def _parece_identificador_de_codigo(token: str) -> bool:
 def _predominantemente_url_encoded(value: str) -> bool:
     """O valor é majoritariamente sequências ``%XX`` (dado de URL/fixture de parser)?
 
-    Fecha a classe do ``"password": "%F0%9F%92%A9"`` da suíte de conformidade WHATWG:
-    um emoji URL-encoded não é uma credencial. Exige que as sequências ``%XX`` cubram a
-    maior parte do valor — uma senha real com um único ``%`` não é afetada.
+    Sinaliza que o valor precisa ser DECODIFICADO antes de ser classificado (ver
+    :func:`_decodificar_percent_encoding`) — exige que as sequências ``%XX`` cubram a
+    maior parte do valor, para que uma senha real com um único ``%`` não seja afetada.
     """
     encoded = "".join(m.group() for m in _URL_ENCODED.finditer(value))
     return len(encoded) * 10 >= len(value) * 6
+
+
+def _decodificar_percent_encoding(value: str) -> str:
+    """Decodifica as sequências ``%XX`` do valor; devolve o original se a decodificação falhar.
+
+    Fecha a classe do ``"password": "%60%7B%7D"`` (decodificado = "`{}", pontuação pura) e
+    do ``"password": "%F0%9F%92%A9"`` (emoji) da suíte de conformidade WHATWG, SEM abrir o
+    falso-negativo oposto: a versão anterior rejeitava qualquer valor majoritariamente
+    URL-encoded incondicionalmente, inclusive um segredo real armazenado codificado (ex.
+    ``%44%62%50%40%73%73`` = ``DbP@ss…``). Decodificar primeiro e deixar o restante do
+    pipeline (classes de caractere, entropia) julgar o valor DECODIFICADO resolve os dois
+    lados da classe ao mesmo tempo.
+    """
+    try:
+        return unquote(value, errors="strict")
+    except UnicodeDecodeError:
+        return value
 
 
 def _max_consonant_run(token: str) -> int:
@@ -1286,7 +1303,9 @@ def looks_like_secret_value(value: str) -> bool:
     if e_hash_cripto(value):
         return False  # hash de senha (bcrypt/argon2/sha-crypt) é derivado, não a senha (FP-03)
     if _predominantemente_url_encoded(value):
-        return False  # `%F0%9F%92%A9` (emoji URL-encoded de fixture) não é credencial
+        value = _decodificar_percent_encoding(value)
+        if any(c.isspace() for c in value):
+            return False  # `%20` decodificado em espaço real é o mesmo piso da linha acima
     if _aleatoriedade_refutada(value):
         # Cadeia REPETIDA (um caractere domina / Shannon baixíssima): nem o ramo de 3
         # classes de caractere (`ABCzzz==`), nem o de corrida de consoantes (`xkkk…`,
