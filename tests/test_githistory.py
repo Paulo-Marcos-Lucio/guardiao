@@ -286,6 +286,91 @@ def test_blob_utf16_no_historico_e_varrido(tmp_path: Path) -> None:
     )
 
 
+def test_git_history_pula_lockfile_como_o_scan_normal(tmp_path: Path) -> None:
+    """Coerência de política entre fontes: `package-lock.json` é ruído no `scan` da
+    árvore (`is_noise_file`) e tinha virado conteúdo varrido no histórico — o `--git-
+    history` ignorava `Config.noise_files`/`binary_exts` por completo e lia qualquer
+    blob pelo conteúdo. Um segredo colado num lockfile (ex.: copiar/colar um `.env`
+    dentro do manifesto) gerava achado só no histórico, nunca no `scan` normal."""
+    repo = _repo(tmp_path)
+    lock = repo / "package-lock.json"
+    lock.write_text(
+        f'{{"lockfileVersion": 3, "aws": "{AWS_KEY_ID}"}}\n',
+        encoding="utf-8",
+    )
+    (repo / "config.py").write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "lockfile + segredo real")
+
+    padrao = Scanner().scan_git_history(repo)
+    achados_do_lock = [f for f in padrao.findings if f.location.path == "package-lock.json"]
+    assert achados_do_lock == [], "lockfile foi varrido no histórico, como o scan normal não faz"
+    assert padrao.skipped["ruido"] >= 1, "o pulo do lockfile não foi contabilizado"
+    # ...e o segredo em arquivo de verdade continua encontrado: não é um skip cego.
+    assert [f for f in padrao.findings if f.rule_id == "aws-access-key-id"]
+
+    # --scan-lockfiles (Config.scan_noise_files) liga a MESMA política nas duas fontes.
+    com_lockfiles = Scanner(config=Config(scan_noise_files=True)).scan_git_history(repo)
+    assert [f for f in com_lockfiles.findings if f.location.path == "package-lock.json"], (
+        "--scan-lockfiles não alcançou o --git-history"
+    )
+
+
+def test_git_history_pula_extensao_binaria_por_nome(tmp_path: Path) -> None:
+    """Mesma coerência para `binary_exts`: um `.png` cujo conteúdo não tem NUL nos
+    primeiros bytes (texto por acidente) ainda precisa ser pulado por EXTENSÃO, como o
+    `scan` de árvore já faz em `sources/files.py::_eligible`."""
+    repo = _repo(tmp_path)
+    (repo / "logo.png").write_text(f"nao-e-binario-de-verdade {AWS_KEY_ID}\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "png que não parece binário por conteúdo")
+
+    achados = Scanner().scan_git_history(repo).findings
+    assert [f for f in achados if f.location.path == "logo.png"] == []
+
+
+def test_since_commit_filtra_o_rev_list(tmp_path: Path) -> None:
+    """``--since-commit`` restringe o histórico varrido ao intervalo <rev>..HEAD: o
+    segredo introduzido ANTES do ponto de corte não deve aparecer, só o de depois."""
+    repo = _repo(tmp_path)
+    (repo / "antigo.py").write_text(f'OLD = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "c0: segredo antigo")
+    marco = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(repo), check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+    (repo / "novo.py").write_text(f'NEW = "{GH_TOKEN}"\n', encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "c1: segredo novo")
+
+    completo = Scanner().scan_git_history(repo)
+    assert [f for f in completo.findings if f.rule_id == "aws-access-key-id"]
+    assert [f for f in completo.findings if f.rule_id == "github-token"]
+    assert completo.avisos_de_cobertura == []
+
+    recorte = Scanner().scan_git_history(repo, since_commit=marco)
+    assert [f for f in recorte.findings if f.rule_id == "github-token"], (
+        "o segredo do commit depois do marco deveria ter sido encontrado"
+    )
+    assert [f for f in recorte.findings if f.rule_id == "aws-access-key-id"] == [], (
+        "--since-commit varreu história anterior ao marco"
+    )
+    assert recorte.avisos_de_cobertura, "o recorte de --since-commit não foi declarado"
+    assert any(marco in aviso for aviso in recorte.avisos_de_cobertura)
+
+
+def test_since_commit_com_revisao_invalida_falha_alto(tmp_path: Path) -> None:
+    """Revisão inexistente não pode virar "histórico vazio, 0 achado" silencioso."""
+    repo = _repo(tmp_path)
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "c0")
+
+    with pytest.raises(GitError):
+        list(iter_history_blobs(repo, since_commit="0" * 40))
+
+
 def test_cat_file_com_saida_de_erro_falha_alto_e_nao_vazio(tmp_path: Path, monkeypatch) -> None:
     """Fail-open é o pior caso: se o `git cat-file` morre a meio do streaming (objeto
     corrompido, I/O), o histórico foi varrido de forma INCOMPLETA. Sem a guarda de
