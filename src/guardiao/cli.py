@@ -107,6 +107,7 @@ def _build_config(
     max_file_size: int = Config.max_file_size,
     max_line_length: int = Config.max_line_length,
     incluir_testes: bool = False,
+    ignorar_gitignore: bool = False,
 ) -> Config:
     _validar_selecao(only, skip, skip_category)
     return Config(
@@ -118,6 +119,7 @@ def _build_config(
         max_file_size=max_file_size,
         max_line_length=max_line_length,
         demote_tests=not incluir_testes,
+        respect_gitignore=not ignorar_gitignore,
     )
 
 
@@ -191,6 +193,12 @@ def scan(
         help="Também varre lockfiles/gerados (uv.lock, package-lock.json, *.min.js). "
         "Por padrão são pulados (só hashes, geram ruído).",
     ),
+    ignorar_gitignore: bool = typer.Option(
+        False,
+        "--ignorar-gitignore",
+        help="Também varre arquivos ignorados pelo .gitignore do repositório. "
+        "Por padrão são pulados (o Git decide o que conta como ruído do projeto).",
+    ),
     max_file_size: int = typer.Option(
         Config.max_file_size, "--max-file-size", help="Tamanho máximo de arquivo varrido, em bytes."
     ),
@@ -214,6 +222,7 @@ def scan(
         max_file_size,
         max_line_length,
         incluir_testes,
+        ignorar_gitignore,
     )
     scanner = Scanner(config=config)
 
