@@ -19,9 +19,10 @@ import os
 import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import IO
 
+from guardiao.core.config import Config
 from guardiao.sources.files import decode_text_bytes
 
 _BLOCO = 65536
@@ -108,11 +109,24 @@ def iter_history_blobs(
     skipped: dict[str, int] | None = None,
     permitir_shallow: bool = False,
     avisos: list[str] | None = None,
+    config: Config | None = None,
+    since_commit: str | None = None,
 ) -> Iterator[Blob]:
     """Itera pelos blobs versionados em qualquer ponto da história.
 
     ``avisos`` (opcional) acumula limites de ALCANCE conhecidos — o que a varredura
     sabidamente não pôde ver. Diferente de ``skipped``, que conta o que foi pulado.
+
+    ``config`` (opcional) aplica a MESMA política de ruído/binário da varredura de
+    árvore de trabalho (:mod:`guardiao.sources.files`) a blobs com caminho conhecido —
+    sem isto, ``package-lock.json`` era pulado pelo ``scan`` normal e varrido no
+    histórico, uma incoerência de política entre as duas fontes.
+
+    ``since_commit`` (opcional) restringe o ``rev-list`` ao intervalo
+    ``since_commit..HEAD`` em vez de ``--all``: só objetos alcançáveis a partir desse
+    ponto (exclusive) são varridos. O recorte é sempre DECLARADO em ``avisos`` — não
+    ter varrido o histórico anterior não pode virar "✓ Nenhum segredo encontrado" em
+    silêncio.
     """
     repo = Path(repo)
     contador = {} if skipped is None else skipped
@@ -146,15 +160,32 @@ def iter_history_blobs(
             if refname:
                 yield Blob(sha="", path="<nome de branch/tag>", text=refname)
 
+    # 0d) --since-commit: declara o recorte ANTES de varrer — "não olhei" tem de
+    #     aparecer no laudo mesmo que o rev-list abaixo falhe por revisão inválida.
+    if since_commit is not None:
+        declarados.append(
+            f"Varredura restrita por --since-commit={since_commit}: só objetos "
+            f"alcançáveis entre {since_commit} (exclusive) e HEAD foram varridos; "
+            "o histórico anterior a esse ponto não foi coberto nesta execução."
+        )
+
     # 1) Mapa sha->path (o primeiro caminho visto para cada blob). Uma chamada só.
-    listing = _run(repo, "rev-list", "--objects", "--all")
+    #    Com --since-commit, o próprio rev-list já filtra o intervalo — nenhum objeto
+    #    de fora dele entra no mapa, logo nenhum é varrido abaixo.
+    intervalo = "--all" if since_commit is None else f"{since_commit}..HEAD"
+    listing = _run(repo, "rev-list", "--objects", intervalo)
     if not listing.ok:
         raise GitError(listing.err.strip() or "git rev-list falhou")
     paths: dict[str, str] = {}
+    recorte: set[str] | None = None if since_commit is None else set()
     for line in listing.out.splitlines():
         sha, _, path = line.partition(" ")
+        if not sha:
+            continue
         if path:
             paths.setdefault(sha, path)
+        if recorte is not None:
+            recorte.add(sha)
 
     # 2) Um processo persistente streamando todos os objetos.
     try:
@@ -189,6 +220,13 @@ def iter_history_blobs(
             except ValueError:  # pragma: no cover - saída inesperada
                 continue
 
+            # --since-commit: ``--batch-all-objects`` enumera TODO objeto do odb, não só
+            # os do intervalo — o recorte do rev-list só vale se for aplicado aqui.
+            if recorte is not None and sha not in recorte:
+                _descartar(stdout, size)
+                stdout.read(1)
+                continue
+
             # Decidir ANTES de ler: um blob de 100 MB não pode virar 100 MB de RAM
             # só para ser descartado pelo limite logo depois.
             if otype not in _TIPOS_VARRIDOS or size > max_bytes:
@@ -197,6 +235,24 @@ def iter_history_blobs(
                 if otype in _TIPOS_VARRIDOS:
                     contador["tamanho"] = contador.get("tamanho", 0) + 1
                 continue
+
+            # Mesma política de ruído/binário do `scan` normal (sources/files.py), por
+            # NOME de caminho — só se aplica a blob com caminho conhecido: coerência
+            # entre fontes é o que falta aqui, não uma heurística nova.
+            if otype == "blob" and config is not None:
+                caminho_conhecido = paths.get(sha)
+                if caminho_conhecido is not None:
+                    nome = PurePath(caminho_conhecido).name
+                    if PurePath(caminho_conhecido).suffix.lower() in config.binary_exts:
+                        _descartar(stdout, size)
+                        stdout.read(1)
+                        contador["binario"] = contador.get("binario", 0) + 1
+                        continue
+                    if config.is_noise_file(nome):
+                        _descartar(stdout, size)
+                        stdout.read(1)
+                        contador["ruido"] = contador.get("ruido", 0) + 1
+                        continue
 
             content = _read_exact(stdout, size)
             stdout.read(1)  # newline após o conteúdo

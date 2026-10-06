@@ -656,7 +656,13 @@ class Scanner:
 
     # -- varredura de histórico Git ----------------------------------------- #
 
-    def scan_git_history(self, repo: Path | str, *, permitir_shallow: bool = False) -> ScanResult:
+    def scan_git_history(
+        self,
+        repo: Path | str,
+        *,
+        permitir_shallow: bool = False,
+        since_commit: str | None = None,
+    ) -> ScanResult:
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
         # `avisos` é preenchido por REFERÊNCIA, como `skipped`: a fonte é preguiçosa e
         # só declara o que descobriu enquanto o pipeline a consome.
@@ -669,6 +675,8 @@ class Scanner:
                 skipped=skipped,
                 permitir_shallow=permitir_shallow,
                 avisos=avisos,
+                config=self.config,
+                since_commit=since_commit,
             )
         )
         result = self.scan_units(units, skipped)
