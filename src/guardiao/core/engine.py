@@ -74,6 +74,7 @@ MOTIVOS_DE_PULO: tuple[str, ...] = (
     "binario",
     "linha_longa",
     "fora-da-raiz",
+    "gitignore",
 )
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).

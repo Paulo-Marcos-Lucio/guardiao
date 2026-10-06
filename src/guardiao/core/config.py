@@ -130,6 +130,9 @@ class Config:
     noise_files: frozenset[str] = DEFAULT_NOISE_FILES
     noise_suffixes: frozenset[str] = DEFAULT_NOISE_SUFFIXES
     scan_noise_files: bool = False  # --scan-lockfiles força varrer lockfiles/gerados
+    #: Pula arquivo ignorado pelo `.gitignore` do repositório (via `git ls-files`).
+    #: `--ignorar-gitignore` desliga — útil para auditar o que o Git nunca versionaria.
+    respect_gitignore: bool = True
     only: frozenset[str] = field(default_factory=frozenset)
     skip: frozenset[str] = field(default_factory=frozenset)
     skip_categories: frozenset[str] = field(default_factory=frozenset)
