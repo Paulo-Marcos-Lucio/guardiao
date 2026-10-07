@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 from guardiao.core.engine import Scanner
-from guardiao.core.models import Severity
+from guardiao.core.models import Finding, Location, Severity
 from guardiao.core.redaction import redact_publicado
 from guardiao.report import console as console_report
 from guardiao.report.json_report import SCHEMA, to_document, to_json
@@ -51,6 +51,67 @@ def test_contrato_json_da_suite(planted_dir: Path) -> None:
         assert "id" in finding and "rule" not in finding
         assert finding["severity"] in {s.value for s in Severity}
         assert isinstance(finding["severity_rank"], int)
+
+
+def test_json_e_sarif_trazem_supressao_por_origem(planted_dir: Path) -> None:
+    """G-04c: `summary.suppressed` (JSON) e `properties.suppressed` (SARIF) trazem a
+    contagem por ORIGEM — mesmas chaves sempre presentes, para o consumidor por
+    máquina não precisar adivinhar qual mecanismo suprimiu o quê."""
+    resultado = Scanner().scan_paths([planted_dir])
+    allowlist_esperado = resultado.suppressed["allowlist"]
+    assert allowlist_esperado >= 1  # planted_dir tem `allowed.py` com `guardiao:allow`
+    resultado.suppressed["baseline"] = 7  # simula supressão aplicada pela CLI
+
+    documento = to_document(resultado)
+    suprimido = documento["summary"]["suppressed"]  # type: ignore[index]
+    assert suprimido == {
+        "placeholder": resultado.placeholders,
+        "allowlist": allowlist_esperado,
+        "baseline": 7,
+    }
+
+    sarif = json.loads(to_sarif(resultado))
+    assert sarif["runs"][0]["properties"]["suppressed"] == suprimido
+
+
+def test_console_imprime_taxa_de_supressao_e_alerta_acima_de_30_por_cento() -> None:
+    """G-04c: a taxa (suprimido / (achados + suprimido)) sempre aparece quando há
+    supressão, e o alerta amarelo só dispara acima de 30% — nem antes, nem silencioso."""
+    baixa = Scanner().scan_units([("a.py", "x = 1", None)])
+    baixa.suppressed["baseline"] = 2  # 2 de 102 => ~2%, sem achado nenhum na tabela
+    baixa.findings = [
+        Finding(
+            rule_id=f"r{i}",
+            title="t",
+            severity=Severity.HIGH,
+            location=Location(path="a.py", line=i + 1),
+            secret="s",
+            redacted="r",
+            line_preview="l",
+        )
+        for i in range(98)
+    ]
+    saida_baixa = _render(baixa)
+    assert "2%" in saida_baixa
+    assert "Taxa de supressão alta" not in saida_baixa
+
+    alta = Scanner().scan_units([("a.py", "x = 1", None)])
+    alta.suppressed["baseline"] = 40
+    alta.findings = [
+        Finding(
+            rule_id=f"r{i}",
+            title="t",
+            severity=Severity.HIGH,
+            location=Location(path="a.py", line=i + 1),
+            secret="s",
+            redacted="r",
+            line_preview="l",
+        )
+        for i in range(60)
+    ]
+    saida_alta = _render(alta)
+    assert "40%" in saida_alta
+    assert "Taxa de supressão alta" in saida_alta
 
 
 def test_console_nao_imprime_o_segredo_cru(planted_dir: Path) -> None:

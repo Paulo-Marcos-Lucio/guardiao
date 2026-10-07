@@ -235,13 +235,13 @@ def scan(
         )
         raise typer.Exit(0)
 
-    suppressed = 0
     if baseline is not None and baseline.exists():
-        result.findings, suppressed = apply_baseline(result.findings, load_baseline(baseline))
+        result.findings, suprimido_pelo_baseline = apply_baseline(
+            result.findings, load_baseline(baseline)
+        )
+        result.suppressed["baseline"] = suprimido_pelo_baseline
 
     _emit(result, formats, output)
-    if suppressed and Format.console in formats:
-        err_console.print(f"[dim]{suppressed} achado(s) suprimido(s) pelo baseline.[/]")
 
     raise typer.Exit(_exit_code(result, fail_on))
 

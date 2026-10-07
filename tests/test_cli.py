@@ -65,6 +65,24 @@ def test_baseline_roundtrip_via_cli(planted_dir: Path, tmp_path: Path) -> None:
     assert again.exit_code == 0
 
 
+def test_baseline_aplicado_pela_cli_aparece_em_summary_suppressed(
+    planted_dir: Path, tmp_path: Path
+) -> None:
+    """G-04c: a CLI aplica o baseline ANTES de emitir — `summary.suppressed.baseline`
+    do JSON tem de refletir exatamente quantos achados ele tirou, não só o console."""
+    baseline = tmp_path / "b.json"
+    sem_baseline = runner.invoke(app, ["scan", str(planted_dir), "-f", "json"])
+    total_sem_baseline = json.loads(sem_baseline.stdout)["summary"]["total"]
+
+    runner.invoke(app, ["scan", str(planted_dir), "--update-baseline", "--baseline", str(baseline)])
+    com_baseline = runner.invoke(
+        app, ["scan", str(planted_dir), "--baseline", str(baseline), "-f", "json"]
+    )
+    documento = json.loads(com_baseline.stdout)
+    assert documento["summary"]["total"] == 0
+    assert documento["summary"]["suppressed"]["baseline"] == total_sem_baseline
+
+
 # --------------------------------------------------------------------------- #
 # Erro de uso tem que ser exit 2 — nunca "verde silencioso".
 # --------------------------------------------------------------------------- #
