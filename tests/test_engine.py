@@ -79,6 +79,20 @@ def test_placeholder_descartado_e_contado() -> None:
     result = Scanner().scan_units([("x.py", 'aws = "AKIAIOSFODNN7EXAMPLE"', None)])
     assert result.findings == []
     assert result.placeholders >= 1
+    assert result.suppressed["placeholder"] == result.placeholders
+
+
+def test_allowlist_descartado_e_contado() -> None:
+    """G-04c: o marcador `guardiao:allow` já suprimia em silêncio — agora entra na
+    mesma contabilidade de supressão que o placeholder, por origem própria."""
+    result = Scanner().scan_units(
+        [("x.py", 'aws = "AKIAZ7Q2LMN4XYWV8RPD"  # guardiao:allow', None)]
+    )
+    assert result.findings == []
+    assert result.suppressed["allowlist"] >= 1
+    # chaves sempre presentes, mesmas zeradas — ninguém precisa adivinhar
+    assert set(result.suppressed) == {"placeholder", "allowlist", "baseline"}
+    assert result.suppressed["baseline"] == 0
 
 
 def test_pipeline_unico_ordena_e_finaliza() -> None:
