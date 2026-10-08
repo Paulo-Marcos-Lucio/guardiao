@@ -111,6 +111,23 @@ def test_ruleset_hash_muda_quando_uma_regra_muda_de_severidade(
     assert provenance.ruleset_hash() != antes
 
 
+def test_ruleset_hash_muda_com_regra_externa() -> None:
+    """G-05 §0.4: um laudo gerado com ``--rules-file``/``--gitleaks-config`` não pode
+    carimbar o MESMO ``ruleset_hash`` de uma varredura sem nenhuma regra externa —
+    isso mentiria sobre o que de fato julgou o código."""
+    assert provenance.ruleset_hash(externas=["[[regras]]\nid='x'\n"]) != provenance.ruleset_hash(
+        externas=[]
+    )
+    assert provenance.ruleset_hash(externas=[]) == provenance.ruleset_hash()
+
+
+def test_ruleset_hash_de_externas_e_insensivel_a_ordem() -> None:
+    """A ORDEM dos `--rules-file`/`--gitleaks-config` na linha de comando não é parte
+    do que foi medido — só o CONJUNTO de arquivos carregados é."""
+    a, b = "conteudo-do-arquivo-a", "conteudo-do-arquivo-b"
+    assert provenance.ruleset_hash(externas=[a, b]) == provenance.ruleset_hash(externas=[b, a])
+
+
 def test_artifact_sha256_e_verificavel_pela_receita_documentada(planted_dir: Path) -> None:
     """Um hash que o destinatário não consegue recalcular é enfeite. A receita:
     zere o campo, serialize canonicamente (sort_keys, separadores compactos, sem
@@ -136,7 +153,7 @@ def test_paridade_da_receita_de_proveniencia(planted_dir: Path) -> None:
     """
     doc = to_document(Scanner().scan_paths([planted_dir]))
     assert _e_sha256_prefixado(doc["ruleset_hash"])
-    assert provenance.RULESET_SCHEMA == "guardiao-ruleset/1"
+    assert provenance.RULESET_SCHEMA == "guardiao-ruleset/2"
     assert len(str(doc["artifact_sha256"])) == _HEX64
     assert doc["commit_scope"] == provenance.COMMIT_SCOPE == "target"
 
