@@ -23,6 +23,13 @@ from guardiao.report import console as console_report
 from guardiao.report.console import txt
 from guardiao.report.json_report import to_json
 from guardiao.report.sarif import to_sarif
+from guardiao.rules.base import Rule
+from guardiao.rules.externas import (
+    RegraExternaError,
+    carregar_gitleaks_toml,
+    carregar_regras_nativas,
+    mesclar_regras,
+)
 from guardiao.rules.registry import all_rules
 from guardiao.sources.files import decode_text_bytes
 from guardiao.sources.githistory import GitError
@@ -121,6 +128,31 @@ def _build_config(
     )
 
 
+def _carregar_regras_externas(gitleaks_config: list[Path], rules_file: list[Path]) -> list[Rule]:
+    """Carrega ``--gitleaks-config``/``--rules-file`` e funde com o catálogo nativo.
+
+    Fail-closed: um arquivo malformado aborta o comando (exit 2) em vez de rodar
+    a varredura silenciosamente com menos regras do que o usuário pediu.
+    """
+    externas: list[Rule] = []
+    try:
+        for p in gitleaks_config:
+            externas.extend(carregar_gitleaks_toml(p))
+        for p in rules_file:
+            externas.extend(carregar_regras_nativas(p))
+    except RegraExternaError as exc:
+        err_console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    regras, descartadas = mesclar_regras(all_rules(), externas)
+    for rid in descartadas:
+        err_console.print(
+            f"[yellow]Regra externa {rid!r} ignorada[/]: colide com o id de uma regra "
+            "nativa (a nativa sempre vence)."
+        )
+    return regras
+
+
 def _exit_code(result: ScanResult, fail_on: FailOn) -> int:
     top = result.max_severity()
     if top is None:
@@ -202,6 +234,20 @@ def scan(
     skip_category: list[str] = typer.Option(
         [], "--skip-category", help="Pula categorias inteiras (ex.: pii)."
     ),
+    gitleaks_config: list[Path] = typer.Option(
+        [],
+        "--gitleaks-config",
+        exists=True,
+        dir_okay=False,
+        help="Carrega regras extras no formato gitleaks TOML (repetível).",
+    ),
+    rules_file: list[Path] = typer.Option(
+        [],
+        "--rules-file",
+        exists=True,
+        dir_okay=False,
+        help="Carrega regras extras no formato nativo do Guardião, TOML (repetível).",
+    ),
 ) -> None:
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
@@ -215,7 +261,8 @@ def scan(
         max_line_length,
         incluir_testes,
     )
-    scanner = Scanner(config=config)
+    regras = _carregar_regras_externas(gitleaks_config, rules_file)
+    scanner = Scanner(config=config, rules=regras)
 
     if git_history:
         try:
