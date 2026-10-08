@@ -26,6 +26,9 @@ dependencies = [
   # explicitamente — cinto e suspensório. Testado com a 0.27 desta árvore.
   "typer>=0.16",
   "rich>=13.7",
+  # `tomllib` é stdlib só a partir do 3.11; o piso mínimo do projeto é 3.10 (ver
+  # `requires-python`). G-05: --rules-file/--gitleaks-config leem TOML nas duas versões.
+  "tomli>=2.0.1; python_version<'3.11'",
 ]
 
 [project.optional-dependencies]
