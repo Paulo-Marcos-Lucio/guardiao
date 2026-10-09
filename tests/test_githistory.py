@@ -9,6 +9,7 @@ import pytest
 
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
+from guardiao.report.json_report import to_document
 from guardiao.sources import githistory
 from guardiao.sources.githistory import GitError, iter_history_blobs
 from tests.conftest import AWS_KEY_ID, GH_TOKEN, SENHA_DE_PRODUCAO
@@ -284,6 +285,84 @@ def test_blob_utf16_no_historico_e_varrido(tmp_path: Path) -> None:
     assert [f for f in achados if f.rule_id == "github-token"], (
         "segredo em blob UTF-16 do histórico não foi encontrado"
     )
+
+
+def test_cobertura_odb_conta_alcancaveis_e_inalcancaveis_varridos(tmp_path: Path) -> None:
+    """G-08pub: o `--amend` deixa o blob E o commit antigos soltos no ODB — fora de
+    `git rev-list --objects --all`, mas ainda assim lidos por `cat-file --batch-all-
+    objects` (é o cenário-assinatura do módulo). `cobertura` precisa provar isso com
+    números: sem o contador, "inalcançável é varrido" era só um comentário no código."""
+    repo = _repo(tmp_path)
+    alvo = repo / "config.py"
+    alvo.write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(repo, "add", "config.py")
+    _git(repo, "commit", "-m", "ops")
+    alvo.write_text("AWS_KEY = os.environ['AWS_KEY']\n", encoding="utf-8")
+    _git(repo, "add", "config.py")
+    _git(repo, "commit", "--amend", "-m", "sem segredo")
+
+    cobertura: dict[str, int] = {}
+    list(iter_history_blobs(repo, cobertura=cobertura))
+
+    assert set(cobertura) == set(githistory.COBERTURA_ODB)
+    # O blob antigo (config.py com a chave) e o commit antigo (substituído pelo
+    # amend) ficam soltos: pelo menos esses dois objetos são inalcançáveis-varridos.
+    assert cobertura["inalcancaveis_varridos"] >= 2
+    assert cobertura["alcancaveis"] >= 1
+    # Partição: nenhum objeto pode ser contado como alcançável E inalcançável, e o
+    # total do ODB nunca é menor que a soma dos dois (há objetos fora de ambos, como
+    # `tree`, que não é varrido nem entra nessas duas contagens).
+    assert (
+        cobertura["objetos_no_odb"]
+        >= cobertura["alcancaveis"] + cobertura["inalcancaveis_varridos"]
+    )
+
+
+def test_cobertura_odb_zerada_num_repo_sem_objeto_solto(tmp_path: Path) -> None:
+    """Repositório "normal" (sem amend/rebase/stash): todo objeto varrido é alcançável —
+    a contagem de inalcançáveis não pode aparecer positiva por acidente."""
+    repo = _repo(tmp_path)
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "c0")
+
+    cobertura: dict[str, int] = {}
+    list(iter_history_blobs(repo, cobertura=cobertura))
+
+    assert cobertura["inalcancaveis_varridos"] == 0
+    assert cobertura["alcancaveis"] > 0
+    assert cobertura["objetos_no_odb"] >= cobertura["alcancaveis"]
+
+
+def test_relatorio_json_traz_a_particao_do_odb_com_a_nota(tmp_path: Path) -> None:
+    """Critério de aceite do item: o relatório (JSON público) traz
+    `coverage.objetos_no_odb/alcancaveis/inalcancaveis_varridos` e a nota de que
+    inalcançáveis SÃO varridos — para quem só lê o laudo, não o código-fonte."""
+    repo = _repo(tmp_path)
+    alvo = repo / "config.py"
+    alvo.write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(repo, "add", "config.py")
+    _git(repo, "commit", "-m", "ops")
+    alvo.write_text("AWS_KEY = os.environ['AWS_KEY']\n", encoding="utf-8")
+    _git(repo, "add", "config.py")
+    _git(repo, "commit", "--amend", "-m", "sem segredo")
+
+    doc = to_document(Scanner().scan_git_history(repo))
+    coverage = doc["summary"]["coverage"]
+
+    assert coverage["objetos_no_odb"] > 0
+    assert coverage["alcancaveis"] > 0
+    assert coverage["inalcancaveis_varridos"] >= 2
+    assert "inalcanç" in coverage["nota"].lower() or "inalcanc" in coverage["nota"].lower()
+    assert "varrid" in coverage["nota"].lower()
+
+
+def test_relatorio_json_sem_git_history_nao_inventa_particao(tmp_path: Path) -> None:
+    """Fora do `--git-history` não existe "ODB de histórico" — `coverage` fica vazio em
+    vez de carimbar zeros que fingiriam uma medição que não aconteceu."""
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    doc = to_document(Scanner().scan_paths([tmp_path]))
+    assert doc["summary"]["coverage"] == {}
 
 
 def test_cat_file_com_saida_de_erro_falha_alto_e_nao_vazio(tmp_path: Path, monkeypatch) -> None:

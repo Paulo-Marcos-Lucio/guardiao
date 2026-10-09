@@ -296,6 +296,11 @@ class ScanResult:
     #: regras de entropia já aparecerem em :attr:`regras_omitidas` — desligar entropia é o
     #: recorte de ruleset mais comum e o consumidor de máquina merece um booleano dedicado.
     entropia_desligada: bool = False
+    #: Partição do ODB numa varredura de histórico (G-08): quantos objetos existem no
+    #: total, quantos são alcançáveis por alguma ref e quantos INALCANÇÁVEIS foram mesmo
+    #: assim varridos (ver :data:`guardiao.sources.githistory.COBERTURA_ODB`). Vazio fora
+    #: do ``--git-history`` — não há ODB de histórico sem ele.
+    cobertura_odb: dict[str, int] = field(default_factory=dict)
 
     def ruleset_parcial(self) -> bool:
         """Rodou-se um subconjunto do catálogo? Então "limpo" não é "limpo completo"."""
@@ -658,9 +663,10 @@ class Scanner:
 
     def scan_git_history(self, repo: Path | str, *, permitir_shallow: bool = False) -> ScanResult:
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
-        # `avisos` é preenchido por REFERÊNCIA, como `skipped`: a fonte é preguiçosa e
-        # só declara o que descobriu enquanto o pipeline a consome.
+        # `avisos` e `cobertura` são preenchidos por REFERÊNCIA, como `skipped`: a fonte
+        # é preguiçosa e só declara o que descobriu enquanto o pipeline a consome.
         avisos: list[str] = []
+        cobertura: dict[str, int] = {}
         units = (
             (blob.path, blob.text, blob.sha)
             for blob in iter_history_blobs(
@@ -669,10 +675,12 @@ class Scanner:
                 skipped=skipped,
                 permitir_shallow=permitir_shallow,
                 avisos=avisos,
+                cobertura=cobertura,
             )
         )
         result = self.scan_units(units, skipped)
         result.avisos_de_cobertura = avisos
+        result.cobertura_odb = cobertura
         result.root = Path(repo)  # o commit vem do git deste repositório, não do CWD
         # O MESMO segredo persiste em dezenas de blobs (todo commit que tocou o arquivo
         # o recarrega): 283 linhas brutas eram ~64 vazamentos distintos. Colapsa por
