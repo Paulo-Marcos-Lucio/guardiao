@@ -15,6 +15,7 @@ from guardiao.core import provenance
 from guardiao.core.engine import ScanResult
 from guardiao.core.models import Finding, Severity
 from guardiao.rules.definitions import OWASP_EDITION
+from guardiao.sources.githistory import COBERTURA_ODB
 
 SCHEMA = "suite-appsec/1"
 
@@ -72,6 +73,23 @@ def to_document(result: ScanResult) -> dict[str, object]:
             # inalcançáveis que um clone não recebe). Lista vazia = nenhum limite
             # conhecido; a chave existe sempre, para o consumidor não ter de adivinhar.
             "coverage_warnings": list(result.avisos_de_cobertura),
+            # Partição do ODB varrido em `--git-history` (G-08): objetos TOTAIS, quantos
+            # são alcançáveis por alguma ref e quantos INALCANÇÁVEIS foram mesmo assim
+            # varridos. `{}` fora do `--git-history` — não existe "ODB de histórico" numa
+            # varredura de árvore de trabalho, e inventar zeros ali fingiria uma medição
+            # que não aconteceu.
+            "coverage": (
+                {
+                    **{chave: result.cobertura_odb.get(chave, 0) for chave in COBERTURA_ODB},
+                    "nota": (
+                        "objetos INALCANÇÁVEIS (ex.: blob solto de um `commit --amend`) "
+                        "SÃO varridos — não são pulados por não aparecerem em "
+                        "`git rev-list --objects --all`."
+                    ),
+                }
+                if result.cobertura_odb
+                else {}
+            ),
             # Cobertura de RULESET: QUAIS regras do catálogo rodaram. Sem isto, um laudo de
             # `--only github-token` (1 regra) é indistinguível do laudo completo — os dois
             # dizem "0 achados". `partial=true` sinaliza que "limpo" vale só para as regras
