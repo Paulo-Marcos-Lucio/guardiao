@@ -18,6 +18,7 @@ from guardiao import __version__
 from guardiao.core.baseline import apply_baseline, load_baseline, save_baseline
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner, ScanResult
+from guardiao.core.manifesto import hash_corpus
 from guardiao.core.models import Severity
 from guardiao.report import console as console_report
 from guardiao.report.console import txt
@@ -314,6 +315,23 @@ def pre_commit(
     else:
         typer.echo(f"✓ {result.units_scanned} arquivo(s) em stage sem segredos.")
     raise typer.Exit(_exit_code(result, fail_on))
+
+
+@app.command("hash-corpus")
+def hash_corpus_cmd(
+    entrada: Path = typer.Option(
+        ..., "--entrada", exists=True, help="Arquivo com um segredo por linha."
+    ),
+    saida: Path = typer.Option(..., "--saida", help="Manifesto JSON de saída."),
+) -> None:
+    """Gera um manifesto de hash do corpus (sal de 32 bytes + HMAC-SHA256 por segredo).
+
+    Para contribuir um corpus de segredos reais sem publicar os segredos: cada
+    linha de `--entrada` vira uma entrada do manifesto com sal aleatório, HMAC
+    e comprimento — nunca o valor nem fragmento dele.
+    """
+    total = hash_corpus(entrada, saida)
+    err_console.print(f"[green]Manifesto gravado[/] em [bold]{saida}[/] ({total} segredo(s)).")
 
 
 def _staged_units(config: Config, skipped: dict[str, int]) -> list[tuple[str, str, str | None]]:
