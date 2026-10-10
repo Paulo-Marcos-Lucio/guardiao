@@ -25,7 +25,19 @@ _A03 = "A03:2025 Software Supply Chain Failures"
 _A04 = "A04:2025 Cryptographic Failures"
 _A07 = "A07:2025 Authentication Failures"
 
-_ROTATE = "Revogue/rotacione a credencial AGORA (o histórico Git é público mesmo após remoção), remova do código e injete via variável de ambiente ou cofre de segredos."
+# Comando literal para o usuário conferir, no PRÓPRIO clone, que uma reescrita de
+# histórico (`git filter-repo`, BFG) realmente tirou o valor — "reescrevi" não é
+# "confirmei". `-S` (pickaxe) busca pelo CONTEÚDO em todos os commits de todos os
+# refs; `--source` nomeia o ref que ainda carrega o achado, se algum sobrar.
+_CONFERIR_PURGA = (
+    "Depois de reescrever o histórico, confira que sumiu de verdade com "
+    "`git log --all --source --oneline -S'<trecho do valor>' -- .` (tem que voltar vazio)."
+)
+
+_ROTATE = (
+    "Revogue/rotacione a credencial AGORA (o histórico Git é público mesmo após remoção), "
+    "remova do código e injete via variável de ambiente ou cofre de segredos. " + _CONFERIR_PURGA
+)
 
 # Contexto que precisa estar PRESENTE na linha para a regra genérica de entropia disparar.
 # Sem isso, "alta entropia" pega hash de lockfile, SHA de commit, UUID e blob base64 — ruído.
@@ -535,7 +547,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-522",
             owasp=_A07,
             recommendation="JWT no código. Se for de sessão/serviço, invalide-o. "
-            "Confirme se não carrega dados sensíveis no payload (é apenas base64, não é cifrado).",
+            "Confirme se não carrega dados sensíveis no payload (é apenas base64, não é cifrado). "
+            + _CONFERIR_PURGA,
         ),
         compile_rule(
             "db-connection-uri",
@@ -711,7 +724,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-359",
             owasp="A04:2025 / LGPD art. 46",
             recommendation="CPF em texto claro é dado pessoal (LGPD). Remova de logs/código, "
-            "minimize e proteja o tratamento; considere anonimização/pseudonimização.",
+            "minimize e proteja o tratamento; considere anonimização/pseudonimização. "
+            + _CONFERIR_PURGA,
         ),
         compile_rule(
             "cnpj",
@@ -723,7 +737,8 @@ def default_rules() -> list[Rule]:
             validator=cnpj_valido,
             cwe="CWE-359",
             owasp="A04:2025 / LGPD",
-            recommendation="CNPJ em texto claro. Avalie se precisa estar versionado no repositório.",
+            recommendation="CNPJ em texto claro. Avalie se precisa estar versionado no repositório. "
+            + _CONFERIR_PURGA,
         ),
     ]
 
