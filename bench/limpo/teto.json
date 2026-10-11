@@ -1,0 +1,6 @@
+{
+  "medido_em": "2026-10-11",
+  "recall_minimo": 0.9285714285714286,
+  "fp_por_mil_maximo": 0.0,
+  "comentario": "Piso = última medição do corpus bench/ (13/14 recall, 0 FP em bench/negativos, 31 linhas). Se uma mudança de detecção melhorar o número de propósito, suba o teto na MESMA mudança e registre a medição no CHANGELOG (regra da casa em bench/README.md) — não deixe o portão mais frouxo que a realidade."
+}
