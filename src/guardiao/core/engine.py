@@ -39,6 +39,29 @@ _ALLOW_MARKERS = ("guardiao:allow", "guardiao: allow", "pragma: allowlist secret
 _RUIDO_EM_MINIFICADO = frozenset({"high-entropy-string", "secret-in-path"})
 _EXT_MINIFICAVEL = frozenset({".js", ".mjs", ".cjs", ".css"})
 
+#: Extrai o código NHI (``NHI2``, ``NHI7``…) do rótulo ``owasp`` de uma regra — o
+#: catálogo embute o rótulo como texto (ver ``_com_cobertura_nhi`` em
+#: ``rules/definitions.py``); isto lê de volta sem duplicar a lista em outro lugar.
+_NHI_CODIGO_RE = re.compile(r"NHI(\d+):\d{4}")
+
+
+def _cobertura_compliance(rules: list[Rule]) -> tuple[list[str], list[str]]:
+    """Códigos NHI e CWE distintos cobertos pelas regras ATIVAS (não o catálogo todo).
+
+    Deriva do próprio catálogo em vez de uma lista mantida à mão: uma regra nova, ou
+    uma varredura com ``--only``/``--skip`` reduzindo o conjunto, muda este resultado
+    sem precisar editar nada aqui — a mesma garantia que :func:`Scanner._cobertura_de_ruleset`
+    já dá para a cobertura de ruleset.
+    """
+    nhi = {
+        f"NHI{m.group(1)}"
+        for rule in rules
+        if rule.owasp
+        for m in _NHI_CODIGO_RE.finditer(rule.owasp)
+    }
+    cwe = {rule.cwe for rule in rules if rule.cwe}
+    return sorted(nhi, key=lambda c: int(c[3:])), sorted(cwe)
+
 
 def _e_minificado(path: str, text: str) -> bool:
     """Arquivo .js/.css minificado? Poucas linhas + longo, ou alguma linha muito longa —
@@ -296,6 +319,11 @@ class ScanResult:
     #: regras de entropia já aparecerem em :attr:`regras_omitidas` — desligar entropia é o
     #: recorte de ruleset mais comum e o consumidor de máquina merece um booleano dedicado.
     entropia_desligada: bool = False
+    #: Cobertura de COMPLIANCE das regras ATIVAS nesta varredura (não o catálogo todo):
+    #: códigos do OWASP NHI Top 10:2025 e CWEs distintos. Base do bloco ``compliance``
+    #: do relatório JSON (ver ``report/json_report.py``).
+    regras_nhi: list[str] = field(default_factory=list)
+    regras_cwe: list[str] = field(default_factory=list)
 
     def ruleset_parcial(self) -> bool:
         """Rodou-se um subconjunto do catálogo? Então "limpo" não é "limpo completo"."""
@@ -633,6 +661,7 @@ class Scanner:
             findings.extend(self.scan_text(path, text, commit=commit, contadores=contadores))
         findings.sort(key=lambda f: (-f.severity.rank, f.location.path, f.location.line))
         placeholders = contadores.pop("placeholder", 0)
+        nhi, cwe = _cobertura_compliance(self.rules)
         return ScanResult(
             findings=findings,
             units_scanned=units_scanned,
@@ -642,6 +671,8 @@ class Scanner:
             regras_omitidas=self._cobertura_de_ruleset(),
             regras_total=len(self._rules_all),
             entropia_desligada=not self.config.use_entropy,
+            regras_nhi=nhi,
+            regras_cwe=cwe,
         )
 
     # -- varredura de arquivos ---------------------------------------------- #
