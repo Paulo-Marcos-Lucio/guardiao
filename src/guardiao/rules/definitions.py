@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import replace
 from urllib.parse import urlsplit
 
 from guardiao.core.entropy import MIN_SECRET_LEN, is_high_entropy, shannon_entropy
@@ -24,6 +25,20 @@ _A02 = "A02:2025 Security Misconfiguration"
 _A03 = "A03:2025 Software Supply Chain Failures"
 _A04 = "A04:2025 Cryptographic Failures"
 _A07 = "A07:2025 Authentication Failures"
+
+#: Edição do OWASP NHI (Non-Human Identity) Top 10 usada nos rótulos deste catálogo.
+#: A lista completa tem 10 categorias (NHI1 a NHI10); este catálogo só mapeia as duas
+#: que o PRÓPRIO mecanismo de detecção cobre — nenhuma outra.
+NHI_EDITION = "2025"
+NHI_TOTAL_CATEGORIAS = 10
+
+# Toda regra de SEGREDO (categoria != "pii") detecta uma credencial HARDCODED em
+# código/histórico — o que é, ao mesmo tempo, (a) o vazamento em si (NHI2: Secret
+# Leakage) e (b) a CLASSE do que foi vazado: uma credencial embutida no repositório
+# não expira por uso único como um token de sessão — é de vida longa por construção
+# (NHI7: Long-Lived Secrets). As regras de PII (cpf/cnpj) ficam de fora: dado pessoal
+# não é credencial de identidade não-humana — mapeiam LGPD, não NHI.
+_NHI_SEGREDO = "NHI2:2025 Secret Leakage / NHI7:2025 Long-Lived Secrets"
 
 _ROTATE = "Revogue/rotacione a credencial AGORA (o histórico Git é público mesmo após remoção), remova do código e injete via variável de ambiente ou cofre de segredos."
 
@@ -275,6 +290,21 @@ _CONNSTRING_SECRET_PATTERN = (
 
 
 def default_rules() -> list[Rule]:
+    return [_com_cobertura_nhi(regra) for regra in _catalogo_bruto()]
+
+
+def _com_cobertura_nhi(regra: Rule) -> Rule:
+    """Acrescenta NHI2/NHI7 ao rótulo ``owasp`` de toda regra de segredo (não-PII).
+
+    Ponto único de verdade: uma regra nova no catálogo herda a cobertura automaticamente,
+    sem precisar lembrar de repetir o sufixo em cada chamada de :func:`compile_rule`.
+    """
+    if regra.category == "pii" or not regra.owasp:
+        return regra
+    return replace(regra, owasp=f"{regra.owasp} / {_NHI_SEGREDO}")
+
+
+def _catalogo_bruto() -> list[Rule]:
     return [
         compile_rule(
             "private-key",

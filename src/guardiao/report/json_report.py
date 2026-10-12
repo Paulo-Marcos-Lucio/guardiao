@@ -14,7 +14,7 @@ from guardiao import __version__
 from guardiao.core import provenance
 from guardiao.core.engine import ScanResult
 from guardiao.core.models import Finding, Severity
-from guardiao.rules.definitions import OWASP_EDITION
+from guardiao.rules.definitions import NHI_EDITION, NHI_TOTAL_CATEGORIAS, OWASP_EDITION
 
 SCHEMA = "suite-appsec/1"
 
@@ -40,6 +40,22 @@ def finding_to_dict(finding: Finding) -> dict[str, object]:
         "recommendation": finding.recommendation,
         "fingerprint": finding.fingerprint,
     }
+
+
+def _frase_cobertura_nhi(categorias: list[str]) -> str:
+    """Frase PT-BR de cobertura — GERADA a partir das categorias medidas, nunca
+    digitada à mão, para não divergir se o catálogo mudar (mesma lógica do badge de
+    contagem de testes: número descrito tem de bater com número medido)."""
+    if not categorias:
+        return (
+            "Nenhuma regra ativa nesta varredura mapeia ao OWASP Non-Human Identity "
+            "(NHI) Top 10:2025."
+        )
+    lista = ", ".join(categorias)
+    return (
+        f"Guardião cobre {len(categorias)} das {NHI_TOTAL_CATEGORIAS} categorias do "
+        f"OWASP Non-Human Identity (NHI) Top 10:2025: {lista}."
+    )
 
 
 def to_document(result: ScanResult) -> dict[str, object]:
@@ -82,6 +98,21 @@ def to_document(result: ScanResult) -> dict[str, object]:
                 "rules_omitted": list(result.regras_omitidas),
                 "entropy_disabled": result.entropia_desligada,
                 "partial": result.ruleset_parcial(),
+            },
+            # Enquadramento de CONFORMIDADE das regras que efetivamente rodaram (não o
+            # catálogo todo — uma varredura com `--only` reflete só o que ativou).
+            # `lgpd` é `None` de propósito: o Guardião open-source NÃO faz mapeamento
+            # LGPD automatizado (isso é o laudo do Guardião-Pro, com revisão humana) —
+            # a chave existe sempre, explícita, para não parecer ausência por esquecimento.
+            "compliance": {
+                "nhi": {
+                    "edition": NHI_EDITION,
+                    "categories": list(result.regras_nhi),
+                    "categories_total": NHI_TOTAL_CATEGORIAS,
+                },
+                "cwe": list(result.regras_cwe),
+                "lgpd": None,
+                "coverage_line": _frase_cobertura_nhi(result.regras_nhi),
             },
         },
         "findings": [finding_to_dict(f) for f in result.findings],
