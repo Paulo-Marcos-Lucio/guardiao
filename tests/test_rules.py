@@ -12,6 +12,7 @@ from tests.conftest import (
     AWS_KEY_ID,
     AWS_SECRET_KEY,
     BASIC_AUTH_URL,
+    CNPJ_ALFANUMERICO_VALIDO,
     CNPJ_VALIDO,
     CONNSTRING_SECRET,
     CPF_VALIDO,
@@ -86,6 +87,9 @@ CASOS_POSITIVOS: list[tuple[str, str, str]] = [
     ("x.txt", 'ref = "/_internal/U0LEqt9hjzO6G66Um7COr4bIDt6cLxZ9/intel"', "secret-in-path"),
     ("x.txt", f"meu cpf: {CPF_VALIDO}", "cpf"),
     ("x.txt", f"cnpj da empresa: {CNPJ_VALIDO}", "cnpj"),
+    # CNPJ alfanumérico (formato novo desde 31/07/2026): letra nas 12 primeiras
+    # posições, DV continua numérico — mesma regra, mesmo validador.
+    ("x.txt", f"cnpj alfanumérico: {CNPJ_ALFANUMERICO_VALIDO}", "cnpj"),
 ]
 
 
@@ -129,6 +133,8 @@ def test_toda_regra_do_catalogo_tem_caso_positivo() -> None:
         'api_key = "${STRIPE_API_KEY}"',  # interpolação de template, não é o segredo
         "numero do pedido: 000.000.000-00",  # dígito verificador inválido → não é CPF
         "cnpj: 12.345.678/0001-00",  # dígito verificador inválido → não é CNPJ
+        "cnpj novo: 12.ABC.345/01DE-00",  # alfanumérico com DV errado → não é CNPJ
+        "sku: AB.CDE.FGH/IJKL-99",  # tem o formato alfanumérico, mas não passa no módulo 11
     ],
 )
 def test_rule_negative(text: str) -> None:
