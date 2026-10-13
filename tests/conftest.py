@@ -27,6 +27,9 @@ JWT = (
 PRIVATE_KEY_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 CPF_VALIDO = "529.982.247-25"  # dígito verificador correto, fora dos CPFs de tutorial
 CNPJ_VALIDO = "11.222.333/0001-81"
+# CNPJ alfanumérico (vigente desde 31/07/2026, IN RFB 2.229/2024) — exemplo oficial
+# da Receita Federal (base 12ABC34501DE, DV 35 pelo módulo 11 com letra=ASCII-48).
+CNPJ_ALFANUMERICO_VALIDO = "12.ABC.345/01DE-35"
 
 # Provedores adicionais: tokens sintéticos que respeitam o formato público (sem placeholders).
 GITLAB_PAT = "glpat-" + "A1b2C3d4E5f6G7h8J9k0"  # glpat- + 20 chars

@@ -717,7 +717,13 @@ def default_rules() -> list[Rule]:
             "cnpj",
             "CNPJ (dado — LGPD)",
             Severity.INFO,
-            r"\b(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})\b",
+            # `[0-9A-Z]` nas 12 primeiras posições (não só `\d`): desde 31/07/2026 a
+            # Receita emite CNPJ alfanumérico (`AA.AAA.AAA/AAAA-DD`) para inscrições
+            # novas. Os 2 dígitos verificadores continuam `\d{2}` — são sempre
+            # numéricos nos dois formatos. `cnpj_valido` confere o módulo 11 dos dois
+            # jeitos; sem essa conferência, qualquer código alfanumérico nesse
+            # formato (nota fiscal, SKU) seria reportado como CNPJ.
+            r"\b([0-9A-Z]{2}\.[0-9A-Z]{3}\.[0-9A-Z]{3}/[0-9A-Z]{4}-\d{2})\b",
             secret_group=1,
             category="pii",
             validator=cnpj_valido,

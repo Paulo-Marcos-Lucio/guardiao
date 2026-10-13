@@ -18,7 +18,7 @@
 [![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
 [![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
-[![297 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-engineering-quality--method)
+[![303 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-engineering-quality--method)
 [![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-engineering-quality--method)
 
 </div>
@@ -114,7 +114,7 @@ Every finding includes **severity**, **redacted evidence**, a **recommendation**
 - **Bias-corrected entropy.** The Shannon estimator is biased downward on short strings (it cannot exceed `log2(n)`), so comparing against a fixed bits/char threshold creates length-dependent false negatives. The criterion uses **Miller-Madow** against a fraction of the token alphabet's theoretical maximum. Measured on 5,992 random secrets × 12,206 real strings extracted from code: recall **85.3% → 94.9%** and false positives **282 → 239** — improves on both axes.
 - **Mandatory context.** The entropy rule only triggers near `token`/`secret`/`key`/`password`… — including inside `DB_PASSWORD` and `accessToken`, which the `\b` boundary doesn't cover.
 - **Negative context.** Entropy **cannot** distinguish a hash from a secret (they're mathematically identical). If the line mentions `md5`/`etag`/`integrity`/`checksum`, the finding is discarded.
-- **Check-digit validation** on CPF/CNPJ (mod 11): `000.000.000-00` is not personal data.
+- **Check-digit validation** on CPF/CNPJ (mod 11): `000.000.000-00` is not personal data. Covers the **alphanumeric CNPJ** (`AA.AAA.AAA/AAAA-DD`, in effect since 2026-07-31) and the numeric one with the same math — digit and letter A-Z give the same checksum.
 - **Placeholder filter by rule nature.** A marker (`todo`/`mock`/`example`) only suppresses when it **dominates** the value in a heuristic rule; for a **format/vendor** rule (the regex already locked the shape) only a whole-value example (`AKIAIOSFODNN7EXAMPLE`) blocks it. So a real `ghp_todo…`/`sk_live_…abcdefgh…` stopped disappearing over 4–8 letters of an example. The report **states how many** values were discarded — the suppression is auditable, not silent.
 - **A public resource segment is not a secret.** A high-entropy token that is actually a structural piece of a **public** resource — a slug in a CDN/asset/doc host (`images.*`, `*cdn*`, `docs.aws.amazon.com`), a cloud resource identifier (`arn:aws:`, an AWS managed policy, `ssoins-`+hex) or a hardware address (WWID/WWN after `/dev/mapper`) — is recognized by its **shape** before being scored by entropy. Without blinding vendor formats: an `AKIA…`/`ghp_…` on the same path still fires.
 - **Consonant run with refutation.** The consonant run that signals randomness is **refuted** when another signal contradicts it — a character that dominates the value (`AQBQyyyy…`) or a very low real Shannon entropy is not a secret, and technical vocabulary with `/`, `-`, `_` or a digit (`aes256gcm`, a MIME type) escapes the gate.
@@ -127,7 +127,6 @@ Honesty first — what this tool **does not** do:
 
 - **Does not validate the credential.** An already-revoked `sk_live_` is reported the same as an active one.
 - **Negative context is a heuristic.** A secret on a line that also contains `checksum` or `commit` gets discarded along with the hashes.
-- **Alphanumeric CNPJ** (the new format from Brazil's tax authority — Receita Federal, `AA.AAA.AAA/AAAA-DD`) is **not** detected — only the numeric one.
 - **Multi-line secrets in raw text** (private key body, service account JSON spread across several lines) are detected by their **header**, not their body: the scan is line by line. *(A whole private key wrapped in base64 on a single line — `{"payload":"LS0tLS1CRUdJTi…"}` — is decoded and detected, though.)*
 - **Does not rewrite history.** Finding is half the job; `git filter-repo` and rotation are separate work.
 - **What gets skipped shows up in the report** (`summary.skipped`): **entire excluded directories** (`vendor/`, `dist/`, `node_modules/`, virtualenv), lockfiles, binaries, files above `--max-file-size`, and lines above `--max-line-length`. "I didn't look" and "I looked and it's clean" are visually distinct outcomes.
@@ -394,7 +393,7 @@ Design principles:
 
 ## 🔬 Engineering quality & method
 
-**Gates (measured in this repo on 2026-09-15, not copied):** 297 tests (1 skip), including *property-based* tests (Hypothesis) that assert class invariants · **95%** coverage (`--cov-fail-under=90`, gate set *below* the measured value to be anti-regression, not vanity) · `mypy --strict` clean (23 files) · `ruff` lint + format clean (64 files) · CI on a **Python 3.10 / 3.11 / 3.12 / 3.13** matrix.
+**Gates (measured in this repo on 2026-10-13, not copied):** 303 tests (1 skip), including *property-based* tests (Hypothesis) that assert class invariants · **95%** coverage (`--cov-fail-under=90`, gate set *below* the measured value to be anti-regression, not vanity) · `mypy --strict` clean (23 files) · `ruff` lint + format clean (67 files) · CI on a **Python 3.10 / 3.11 / 3.12 / 3.13** matrix.
 
 **A test that bites the hand that would undo it.** The anti-false-positive calibration lives under guard: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) turns **red** if a precision filter starts swallowing a real secret again — it reaffirms that AWS, `ghp_`, entropy, and private-key detection keep firing. And `test_toda_regra_do_catalogo_tem_caso_positivo` fails the CI if a new rule is born without a positive test case: "rule with no test" and "rule that never matches anything" become indistinguishable — and both get blocked. Dogfooding: `test_source_tree_is_clean` scans `src/` itself.
 
