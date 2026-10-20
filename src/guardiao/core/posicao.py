@@ -51,7 +51,13 @@ def mapa_de_posicoes(texto: str) -> dict[tuple[int, int], str]:
             categoria = _CATEGORIA_POR_TIPO.get(tok.type)
             if categoria is not None:
                 _marcar(mapa, tok.start, tok.end, linhas, categoria)
-    except (tokenize.TokenError, SyntaxError):
+    except (tokenize.TokenError, SyntaxError, UnicodeError):
+        # UnicodeError (Decode/Encode): a partir do Python 3.12 o tokenizer C faz um
+        # round-trip interno de (de/en)codificação mesmo recebendo `str`, e certas
+        # sequências Unicode válidas em `str` o fazem levantar UnicodeDecodeError
+        # (achado pelo Hypothesis com `'\r\x80'`, ausente no tokenizer puro-Python do
+        # 3.10/3.11). Não é sintaxe nem fim-de-arquivo, mas é a mesma classe de "não
+        # tokenizou" — fail-open, não propaga.
         return {}
     return mapa
 

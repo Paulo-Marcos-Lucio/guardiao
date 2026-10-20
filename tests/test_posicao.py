@@ -58,6 +58,14 @@ def test_texto_que_nao_tokeniza_devolve_mapa_vazio_fail_open() -> None:
     assert mapa_de_posicoes('"""sem fechar') == {}
 
 
+def test_unicode_que_quebra_o_tokenizer_c_do_3_12_devolve_mapa_vazio() -> None:
+    # A partir do Python 3.12 o tokenizer C faz um round-trip interno de
+    # (de/en)codificação e levanta UnicodeDecodeError para este `str` — caso achado
+    # pelo Hypothesis, ausente no tokenizer puro-Python do 3.10/3.11. Trava a classe
+    # (UnicodeError), não o exemplo isolado.
+    assert mapa_de_posicoes("\r\x80") == {}
+
+
 def test_texto_vazio_devolve_mapa_vazio() -> None:
     assert mapa_de_posicoes("") == {}
 
