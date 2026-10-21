@@ -34,6 +34,14 @@ _TEST_FILE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Sinal suave análogo ao de teste, mas para DOCUMENTAÇÃO: um `.rst` dentro de uma
+# pasta `docs/` é texto narrativo (tutorial, changelog, exemplo de config) — a mesma
+# classe de contexto de `tests/` em que um palpite HEURÍSTICO (entropia, atribuição
+# genérica) tem taxa de falso-positivo maior que em código de produção. Regra de
+# FORMATO (private-key, token de fornecedor) não entra aqui: ver `_DEMOTABLE_IN_TESTS`
+# no motor, que é o filtro real de quais achados o sinal rebaixa.
+_DOC_DIR_SEGMENTS: frozenset[str] = frozenset({"docs"})
+
 DEFAULT_EXCLUDE_DIRS: frozenset[str] = frozenset(
     {
         ".git",
@@ -136,6 +144,9 @@ class Config:
     #: Rebaixa a severidade de achados HEURÍSTICOS (generic-assignment, high-entropy)
     #: em arquivos de teste — sinal suave, não skip. `--incluir-testes` desliga.
     demote_tests: bool = True
+    #: Mesmo rebaixe, para `docs/*.rst` — mesma flag `--incluir-testes` desliga (o nome
+    #: do flag é sobre "incluir no rigor normal", não só sobre testes).
+    demote_docs: bool = True
 
     def is_test_path(self, path: str) -> bool:
         """Heurística: este caminho é de um arquivo de teste?"""
@@ -143,6 +154,13 @@ class Config:
         if any(seg.lower() in _TEST_DIR_SEGMENTS for seg in pure.parts):
             return True
         return bool(_TEST_FILE_RE.match(pure.name))
+
+    def is_doc_path(self, path: str) -> bool:
+        """Heurística: este caminho é documentação (`docs/*.rst`)?"""
+        pure = PurePath(str(path).replace("\\", "/"))
+        if pure.suffix.lower() != ".rst":
+            return False
+        return any(seg.lower() in _DOC_DIR_SEGMENTS for seg in pure.parts[:-1])
 
     def is_noise_file(self, name: str) -> bool:
         """Lockfile/gerado/minificado — pulado por padrão (ruído de hashes)."""
