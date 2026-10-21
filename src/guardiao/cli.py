@@ -118,6 +118,7 @@ def _build_config(
         max_file_size=max_file_size,
         max_line_length=max_line_length,
         demote_tests=not incluir_testes,
+        demote_docs=not incluir_testes,
     )
 
 
@@ -182,8 +183,9 @@ def scan(
     incluir_testes: bool = typer.Option(
         False,
         "--incluir-testes",
-        help="Não rebaixa a severidade de achados heurísticos em arquivos de teste "
-        "(por padrão, tests/, test_*.py, conftest.py etc. são rebaixados — sinal suave).",
+        help="Não rebaixa a severidade de achados heurísticos em arquivos de teste ou "
+        "documentação (por padrão, tests/, test_*.py, conftest.py e docs/*.rst "
+        "são rebaixados — sinal suave).",
     ),
     scan_lockfiles: bool = typer.Option(
         False,

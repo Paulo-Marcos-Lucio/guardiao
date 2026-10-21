@@ -366,6 +366,42 @@ def test_arquivo_de_teste_rebaixa_heuristica_mas_nao_suprime() -> None:
     assert sem_rebaixe.severity is Severity.MEDIUM
 
 
+# MED — G-02d: docs/*.rst tem a mesma consciência de sinal suave que arquivos de teste.
+def test_doc_rst_rebaixa_heuristica_mas_nao_suprime() -> None:
+    line = 'api_key = "S3cr3tP4ssw0rdX9zQvB"'
+    prod = next(Scanner().scan_text("app/config.py", line))
+    doc = next(Scanner().scan_text("docs/configuracao.rst", line))
+    assert prod.severity is Severity.MEDIUM
+    assert doc.severity is Severity.LOW  # rebaixado, mas AINDA reportado (não some do JSON/SARIF)
+    # fora de docs/ (mesmo sufixo .rst) não rebaixa.
+    fora_de_docs = next(Scanner().scan_text("notas.rst", line))
+    assert fora_de_docs.severity is Severity.MEDIUM
+    # --incluir-testes desliga o rebaixe de docs também (mesma flag).
+    sem_rebaixe = next(
+        Scanner(config=Config(demote_docs=False)).scan_text("docs/configuracao.rst", line)
+    )
+    assert sem_rebaixe.severity is Severity.MEDIUM
+
+
+# ALTO — private-key e tokens de fornecedor (regra de FORMATO) nunca rebaixam em docs/*.rst.
+def test_doc_rst_nao_rebaixa_regra_de_formato() -> None:
+    pem = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEA\n"
+        "-----END RSA PRIVATE KEY-----"
+    )
+    achado = next(
+        f for f in Scanner().scan_text("docs/exemplo.rst", pem) if f.rule_id == "private-key"
+    )
+    assert achado.severity is Severity.CRITICAL
+
+    linha = f'token = "{GH_TOKEN}"'
+    achado = next(
+        f for f in Scanner().scan_text("docs/exemplo.rst", linha) if f.rule_id == "github-token"
+    )
+    assert achado.severity is Severity.HIGH
+
+
 # MED — 'api' isolado casava DENTRO de 'FastAPI' e ligava a regra de entropia.
 def test_api_dentro_de_fastapi_nao_liga_entropia() -> None:
     linha = "# stack: SQLAlchemy/Redis/FastAPI roda tudo integrado sem problema nenhum"
