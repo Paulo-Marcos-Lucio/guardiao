@@ -33,3 +33,7 @@ gbd.json
 # Versionar o literal faria o push protection do GitHub recusar — e ele estaria certo.
 bench/positivos/stripe.js
 bench/resultado.json
+
+# CredData (bench/creddata/baixar.py): clone de terceiro + corpus baixado. Nunca
+# versionado — é código e dado de fora, reproduzível a qualquer momento pelo script.
+bench/creddata/.cache/

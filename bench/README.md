@@ -53,3 +53,32 @@ calibração: detectar entropia solta sem contexto é a principal fonte de ruíd
 
 Quem alterar detecção **roda esta bateria antes e depois** e registra os dois números no CHANGELOG.
 Um recall que sobe às custas de falso-positivo não é melhoria — é troca, e a troca precisa estar visível.
+
+## `creddata/` — o mesmo número contra dado real, não plantado
+
+Tudo acima é plantado por quem fez a ferramenta: um recall alto aqui prova só que a
+regra cobre o exemplo que o próprio autor pensou. `creddata/` mede contra o
+[CredData](https://github.com/Samsung/CredData) (Samsung) — centenas de
+repositórios públicos reais, com linhas revisadas e rotuladas por terceiros
+(`T`=credencial real, `F`=parece mas não é, `X`=teste/exemplo/placeholder).
+
+```bash
+python bench/creddata/baixar.py --max-repos 10      # amostra; sem a flag baixa tudo
+guardiao scan bench/creddata/.cache/data -f json -o bench/creddata/.cache/resultado.json
+python bench/creddata/avaliar.py bench/creddata/.cache/resultado.json
+```
+
+Nada disto é versionado (`bench/creddata/.cache/` está no `.gitignore`): o CredData
+não distribui os arquivos de código em si, e baixá-los de novo é reproduzível a
+qualquer momento pelo próprio `baixar.py` — ver a docstring dos dois scripts para
+o algoritmo de recuperação de arquivo, por que ele é reimplementado em vez de
+importado do clone do CredData, e como a ofuscação dos valores `T` preserva
+formato (prefixo de provedor + classe de caractere) sem nunca deixar o valor
+real sobreviver no disco.
+
+**O que foi medido de verdade, e o que não.** Verificação manual neste item rodou
+contra uma amostra (`--max-repos`), não contra o corpus inteiro (centenas de
+repositórios, rede e disco que um sandbox de CI não tem de sobra) — ver
+`LEDGER.md` do repositório `cadencia` para os números exatos da amostra
+verificada. O mecanismo é o mesmo rodando com 10 ou com o dataset inteiro;
+só o tamanho da amostra muda, e `avaliar.py` sempre declara qual foi usada.
