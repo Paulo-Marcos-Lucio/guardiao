@@ -33,3 +33,8 @@ gbd.json
 # Versionar o literal faria o push protection do GitHub recusar — e ele estaria certo.
 bench/positivos/stripe.js
 bench/resultado.json
+
+# bench/limpo/baixar.py: clone de três repositórios de terceiros (httpx, requests,
+# flask) fixados por commit. Nunca versionado — é código de fora, reproduzível a
+# qualquer momento pelo próprio script; só a adjudicação dos achados é versionada.
+bench/limpo/.cache/
