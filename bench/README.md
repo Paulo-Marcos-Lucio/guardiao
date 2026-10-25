@@ -53,3 +53,32 @@ calibração: detectar entropia solta sem contexto é a principal fonte de ruíd
 
 Quem alterar detecção **roda esta bateria antes e depois** e registra os dois números no CHANGELOG.
 Um recall que sobe às custas de falso-positivo não é melhoria — é troca, e a troca precisa estar visível.
+
+## `limpo/` — falso-positivo contra código real, não plantado
+
+Tudo acima é plantado por quem fez a ferramenta: um falso-positivo baixo aqui prova só
+que o autor não tropeçou no próprio exemplo. `limpo/` mede a direção oposta de
+`creddata/` (que mede RECALL): aqui o pressuposto é que **não há segredo real**, e
+qualquer achado é candidato a falso-positivo — contra três repositórios públicos
+populares e fixados por commit ([httpx](https://github.com/encode/httpx),
+[requests](https://github.com/psf/requests), [flask](https://github.com/pallets/flask)).
+
+```bash
+python bench/limpo/baixar.py
+guardiao scan bench/limpo/.cache/repos -f json -o bench/limpo/.cache/resultado.json --fail-on none
+python bench/limpo/avaliar.py bench/limpo/.cache/resultado.json
+```
+
+Nenhum achado conta como falso-positivo por padrão: cada um só entra no FP/1k se tiver
+entrada correspondente, no commit atual, em `limpo/adjudicacao.json` — **esse arquivo é
+versionado**, porque o repo+commit é fixo e a posição `arquivo:linha` fica estável sem
+precisar versionar o código de terceiro em si (que nunca é versionado — ver
+`.gitignore` — e é reproduzível a qualquer momento por `baixar.py`). Um achado sem
+adjudicação correspondente fica `pendente`, nunca presumido FP; se uma adjudicação
+registrar `segredo_real`, o achado nunca entra no FP/1k e é impresso com destaque.
+
+**Medido em 2026-10-25** (commits fixados: `httpx@b5addb6`, `requests@1f6589e`,
+`flask@6a2f545`): 489 arquivos, 22 achados, **22/22 adjudicados** (nenhum pendente,
+nenhum segredo real) — todos documentação de tutorial (`SECRET_KEY` placeholder do
+Flask) ou fixture de teste (certificado TLS descartável do `requests`, nonce de Digest
+auth e credencial de exemplo do `httpx`). **FP / 1.000 arquivos = 44,99.**
