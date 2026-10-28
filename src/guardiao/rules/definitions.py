@@ -965,7 +965,7 @@ _VOGAL = re.compile(r"[aeiouyAEIOUY]")
 _URL_ENCODED = re.compile(r"%[0-9A-Fa-f]{2}")
 
 
-def _parece_identificador_de_codigo(token: str) -> bool:
+def parece_identificador_de_codigo(token: str) -> bool:
     """Token com estrutura de identificador de código (snake_case/kebab/camelCase de
     palavras legíveis) — NUNCA é um segredo aleatório.
 
@@ -1075,7 +1075,7 @@ def _e_forma_estrutural_nao_segredo(value: str) -> bool:
     # um SEGREDO, não de um enum — e não pode ser cegado por uma leitura camelCase forçada.
     if not any(c in value for c in "-_.:"):
         return False
-    if _parece_identificador_de_codigo(value):
+    if parece_identificador_de_codigo(value):
         return True  # `X-Company-ApiKey`: segmentos são palavras legíveis
     if _ENUM_SEGMENTADO.match(value):
         segmentos = re.split(r"[.:_\-]", value)
@@ -1171,7 +1171,7 @@ def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> 
         return False
     if is_probable_hash_or_id(token):
         return False
-    if _parece_identificador_de_codigo(token):
+    if parece_identificador_de_codigo(token):
         return False  # identificador de código (`cert_encrypted_private_key_file`) não é segredo
     if is_high_entropy(token):
         return True
@@ -1277,6 +1277,7 @@ def looks_like_secret_value(value: str) -> bool:
 
     * valor com espaço em branco → nunca é um token (mata `wrong password`);
     * entropia alta OU formato hex conhecido → aceita chaves/hashes;
+    * identificador de código (sub-palavras legíveis, `cert_encrypted_private_key`) → rejeita;
     * 3+ classes de caracteres → aceita senhas humanas mistas (`S3cr3tP4ss…`);
     * uma classe só, mas longa e impronunciável → aceita blob MAIÚSCULO aleatório;
     * caso contrário (identificador legível `monitoring_password`) → rejeita.
@@ -1296,6 +1297,19 @@ def looks_like_secret_value(value: str) -> bool:
         return False
     if is_high_entropy(value) or _HEX_SECRET.match(value):
         return True
+    # A decomposição em identificador só faz sentido quando há SEPARADOR real (`_`/`-`),
+    # a mesma guarda de :func:`_e_forma_estrutural_nao_segredo`: sem ela, o limite
+    # camelCase sozinho (zero-width, entre minúscula/dígito e MAIÚSCULA) decompõe um blob
+    # SEM separador em "segmentos" por acidente — `Xk9AAAAABBaBO` virava `["Xk9",
+    # "AAAAABBa", "BO"]`, e `AAAAABBa`/`BO` casam "palavra" só porque contêm uma vogal
+    # MAIÚSCULA, sem ser palavra nenhuma. Um blob aleatório sem `_`/`-` não é identificador.
+    if any(c in value for c in "_-") and parece_identificador_de_codigo(value):
+        # CAUSA-RAIZ do mesmo FP de `looks_like_secret_token` (G-01a/b), mas do lado da
+        # `generic-assignment`: `cert_encrypted_private_key = "cert_encrypted_private_key_file"`
+        # tem a palavra `encrypted` (corrida de 6 consoantes) e caía no ramo de impronunciabilidade
+        # abaixo, apesar de ser um VALOR com forma de identificador de código, não de segredo
+        # aleatório. Vem depois do teto de entropia/hex: um segredo real nunca chega aqui.
+        return False
     # Marcador de TESTE/placeholder no VALOR (palavra que um segredo real não carrega):
     # `senha-teste-1`, `nova-senha-teste-9`, `Test@2026!` passavam pelo ramo "3 classes"
     # apesar de baixa entropia. Só suprime AQUI, abaixo do gate de alta entropia — um
