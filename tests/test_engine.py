@@ -75,6 +75,21 @@ def test_lockfile_e_linha_longa_sao_contabilizados(tmp_path: Path) -> None:
     assert result.skipped["linha_longa"] >= 1
 
 
+def test_identificador_de_codigo_e_contado_mas_nao_e_pulo_de_conteudo() -> None:
+    """G-01c: o classificador de posição salva `cert_encrypted_private_key_file` em
+    `skipped["identificador"]` (auditabilidade da supressão), mas `total_pulado()` tem
+    de ficar em 0 — a varredura OLHOU a linha inteira; só decidiu, corretamente, que o
+    candidato não é segredo. Sem essa distinção, um identificador comum de qualquer base
+    de código real rebaixaria um scan COMPLETO para "limpo só no que foi analisado".
+    """
+    result = Scanner().scan_units(
+        [("fake.py", "def cert_encrypted_private_key_file(x):\n    pass\n", None)]
+    )
+    assert result.findings == []
+    assert result.skipped["identificador"] == 1
+    assert result.total_pulado() == 0
+
+
 def test_placeholder_descartado_e_contado() -> None:
     result = Scanner().scan_units([("x.py", 'aws = "AKIAIOSFODNN7EXAMPLE"', None)])
     assert result.findings == []

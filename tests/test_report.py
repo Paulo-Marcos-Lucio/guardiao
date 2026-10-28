@@ -116,6 +116,27 @@ def test_aviso_de_cobertura_aparece_em_console_json_e_sarif() -> None:
     assert sarif["runs"][0]["properties"]["coverageWarnings"] == resultado.avisos_de_cobertura
 
 
+def test_identificador_de_codigo_aparece_em_skipped_do_json_e_do_sarif() -> None:
+    """G-01c: `def cert_encrypted_private_key_file(x):` não gera achado de categoria
+    `entropy`, e o pulo fica auditável em `summary.skipped.identificador` (JSON) e
+    `properties.skipped` (SARIF) — sem isso, "olhei e é identificador" desaparecia
+    dentro de "nenhum achado", indistinguível de "não olhei"."""
+    resultado = Scanner().scan_units(
+        [("app.py", "def cert_encrypted_private_key_file(x):\n    pass\n", None)]
+    )
+    assert resultado.findings == []
+    assert resultado.skipped["identificador"] == 1
+    # candidato ANALISADO e corretamente descartado — não é conteúdo nunca visto, então
+    # não pode rebaixar o tique de "varredura completa".
+    assert resultado.total_pulado() == 0
+
+    documento = to_document(resultado)
+    assert documento["summary"]["skipped"]["identificador"] == 1  # type: ignore[index]
+
+    sarif = json.loads(to_sarif(resultado))
+    assert sarif["runs"][0]["properties"]["skipped"]["identificador"] == 1
+
+
 def test_console_nao_interpreta_markup_do_alvo(tmp_path: Path) -> None:
     """Markup do Rich vindo do alvo derrubava o relatório inteiro (MarkupError) e
     permitiria esconder um achado com `[black on black]`."""
