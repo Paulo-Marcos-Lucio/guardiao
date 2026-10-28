@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import base64
 
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
@@ -163,3 +163,19 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=200)
+@given(dados=st.binary(min_size=20, max_size=200))
+def test_blob_base64_entre_aspas_nunca_e_secret_in_path(dados: bytes) -> None:
+    """INVARIANTE 7 (G-01d): um blob base64 FECHADO ENTRE ASPAS nunca é lido como path — a
+    barra interna do blob (`opaque="FQhe/qaU…"`, RFC 7616 Digest Auth) não é delimitador de
+    segmento. Vale para QUALQUER payload que contenha ao menos uma `/`, não só o exemplo do
+    relatório. O gêmeo desta invariante (a MESMA barra, fora de aspas, continua achado de
+    `secret-in-path` — o F-007) está em ``test_secret_in_path_recupera_o_f007``.
+    """
+    blob = base64.b64encode(dados).decode()
+    assume("/" in blob)
+    texto = f'opaque="{blob}"\n'
+    achados = [a for a in Scanner().scan_text("x.py", texto) if a.rule_id == "secret-in-path"]
+    assert achados == [], f"blob base64 entre aspas gerou secret-in-path: {blob!r}"

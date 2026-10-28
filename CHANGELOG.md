@@ -47,6 +47,19 @@ Bateria empírica de causa-raiz, cada item travado por invariante property-based
   FOI ANALISADO"** quando o catálogo é parcial. "Não rodei essa regra" e "rodei e passou" deixam de ser a
   mesma saída.
 
+### Corrigido — `opaque=` do RFC 7616 ainda virava `secret-in-path` com `/` múltiplas (G-01d)
+
+- **Fronteira de blob citado varrida com o alfabeto COM barra.** `_barra_interna_base64`
+  varria à esquerda com o alfabeto base64url SEM `/` — bastava o valor citado ter DUAS barras
+  internas (`opaque="FQhe/qa/U…"`) ou começar logo por uma (`opaque="/AAAA…"`) para a varredura
+  parar numa `/` interna ou devolver `False` sem checar a aspa, perdendo a fronteira real. Passa a
+  varrer com o alfabeto base64 COM barra (`_B64_COM_BARRA`): atravessa qualquer número de `/`
+  internas até achar a aspa de abertura (ou desistir se a linha acabar antes). O path real do F-007
+  usa base64url (`-`/`_`), fora desse alfabeto, e continua detectado. Pego por um teste
+  property-based (`test_blob_base64_entre_aspas_nunca_e_secret_in_path`, Hypothesis sobre
+  `base64.b64encode` de bytes arbitrários) escrito para o critério de aceite do item — nenhum teste
+  cobria esse caso antes.
+
 ## [0.5.0] — 2026-08-05
 
 ### Corrigido — calibração anti-falso-positivo (medição de campo 2026-08-05)
