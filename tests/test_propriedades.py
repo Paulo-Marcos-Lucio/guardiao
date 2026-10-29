@@ -16,8 +16,13 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import looks_like_secret_token
+from guardiao.rules.definitions import default_rules, looks_like_secret_token
 from guardiao.sources.files import decode_text_bytes
+
+# Só as regras que DECLARAM literal — `high-entropy-string` não tem nenhum (o valor
+# casado é entropia pura, sem substring garantida) e fica fora por desenho, não por
+# lacuna: ver o comentário em `literais=()` na própria definição da regra.
+_REGRAS_COM_LITERAL = [r for r in default_rules() if r.literais]
 
 # Palavras legíveis (com vogal) para montar identificadores de código sintéticos.
 _PALAVRAS = [
@@ -163,3 +168,31 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=500, deadline=None)
+@given(data=st.data())
+def test_literal_e_condicao_necessaria_do_casamento(data: st.DataObject) -> None:
+    """INVARIANTE 7 (G-03a): todo texto que uma `Rule.regex` CASA contém pelo menos um
+    dos literais que ela declara em `Rule.literais`.
+
+    `literais` é escrito à mão — não extraído da regex — porque é quem lê a regra que
+    sabe qual trecho é fixo e qual é a parte variável (o segredo em si). Esta é a
+    invariante que tranca essa declaração: se alguém adicionar um literal errado (que
+    NÃO é garantido em todo casamento), este teste gera o contraexemplo via
+    `st.from_regex` e reprova — ao contrário de um exemplo fixo, que só pegaria o
+    literal errado se alguém pensasse nesse caso específico.
+
+    Isto é o que torna o literal um pré-filtro SEGURO (G-03b consome este campo): uma
+    linha sem nenhum literal declarado não pode casar a regex, então pular a regex
+    nessa linha nunca descarta um achado real.
+    """
+    rule = data.draw(st.sampled_from(_REGRAS_COM_LITERAL))
+    texto = data.draw(st.from_regex(rule.regex))
+    match = rule.regex.search(texto)
+    assert match is not None, f"regra {rule.id!r}: texto gerado {texto!r} não casou a própria regex"
+    casado = match.group(0).lower()
+    assert any(literal.lower() in casado for literal in rule.literais), (
+        f"regra {rule.id!r}: casamento {match.group(0)!r} não contém nenhum dos literais "
+        f"declarados {rule.literais!r}"
+    )
