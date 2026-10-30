@@ -6,7 +6,7 @@ import pytest
 
 from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
-from tests.conftest import CPF_VALIDO, SENHA_DE_PRODUCAO
+from tests.conftest import AWS_KEY_ID, CPF_VALIDO, DB_URI, GH_TOKEN, SENHA_DE_PRODUCAO
 
 
 def test_scan_planted_dir_finds_all_families(planted_dir: Path) -> None:
@@ -114,3 +114,48 @@ def test_ancora_de_chave_sensivel(linha: str, esperado: bool) -> None:
     `\\bpassword\\b`. E o ramo camelCase não pode aceitar `...Token`/`...Key`."""
     achou = "generic-assignment" in {f.rule_id for f in Scanner().scan_text("x.py", linha)}
     assert achou is esperado
+
+
+def _unidades_sinteticas(total: int) -> list[tuple[str, str, None]]:
+    """``total`` unidades: a maioria benigna, intercaladas com 3 famílias de segredo
+    real (formato de fornecedor + composto), em posições fixas para reprodutibilidade."""
+    unidades: list[tuple[str, str, None]] = []
+    for i in range(total):
+        if i % 37 == 0:
+            linha = f'aws_key = "{AWS_KEY_ID}"'
+        elif i % 41 == 0:
+            linha = f'token = "{GH_TOKEN}"'
+        elif i % 53 == 0:
+            linha = f'uri = "{DB_URI}"'
+        else:
+            linha = f"valor = {i}  # linha benigna sem segredo"
+        unidades.append((f"arquivo_{i:04d}.py", linha, None))
+    return unidades
+
+
+def test_scan_units_jobs_1_e_4_produzem_mesmas_fingerprints() -> None:
+    """G-03d: `jobs` muda COMO a varredura é feita (processos em vez de um laço), nunca
+    O QUE ela encontra. 220 unidades cruza o piso `_JOBS_MIN_UNITS` (200) e força o
+    `ProcessPoolExecutor` de fato — não é só o caminho sequencial disfarçado."""
+    unidades = _unidades_sinteticas(220)
+    sequencial = Scanner().scan_units(unidades, jobs=1)
+    paralelo = Scanner().scan_units(unidades, jobs=4)
+
+    assert sequencial.units_scanned == paralelo.units_scanned == 220
+    assert len(sequencial.findings) >= 3  # os 3 segredos plantados, no mínimo
+
+    fp_sequencial = [f.fingerprint for f in sequencial.findings]
+    fp_paralelo = [f.fingerprint for f in paralelo.findings]
+    assert fp_sequencial == fp_paralelo  # mesmo conjunto E mesma ordem
+    assert sequencial.skipped == paralelo.skipped
+
+
+def test_scan_units_jobs_abaixo_do_piso_nao_muda_resultado() -> None:
+    """Com menos unidades que `_JOBS_MIN_UNITS`, `jobs=4` cai para o caminho sequencial
+    (nenhum processo é aberto) — e o resultado tem que ser idêntico ao de `jobs=1`."""
+    unidades = _unidades_sinteticas(5)
+    sequencial = Scanner().scan_units(unidades, jobs=1)
+    com_jobs_pedido = Scanner().scan_units(unidades, jobs=4)
+    assert [f.fingerprint for f in sequencial.findings] == [
+        f.fingerprint for f in com_jobs_pedido.findings
+    ]

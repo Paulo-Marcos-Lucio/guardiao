@@ -7,6 +7,7 @@ import functools
 import re
 import time
 from collections.abc import Iterable, Iterator
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field, replace
 from fnmatch import fnmatch
 from pathlib import Path, PurePath
@@ -78,6 +79,50 @@ MOTIVOS_DE_PULO: tuple[str, ...] = (
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
 Unit = tuple[str, str, "str | None"]
+
+#: Abaixo deste total de unidades, o custo de abrir processos supera o ganho de
+#: paralelizar (G-03d): o fork/spawn de um ``ProcessPoolExecutor`` tem overhead fixo por
+#: processo, e uma varredura pequena termina antes que o pool sequer acabe de subir.
+#: `scan_units` cai para o caminho sequencial de sempre abaixo deste piso, mesmo com
+#: `jobs > 1` pedido — o paralelismo é um OTIMIZAÇÃO silenciosa, nunca uma obrigação.
+_JOBS_MIN_UNITS = 200
+
+
+def _scan_chunk_worker(config: Config, chunk: list[Unit]) -> tuple[list[Finding], dict[str, int]]:
+    """Roda num processo-trabalhador do `ProcessPoolExecutor` (G-03d).
+
+    Recebe só `Config` (dataclass simples) e as unidades já materializadas — nunca o
+    catálogo de `Rule`, que carrega `validator` com alguma lambda (CPF) não-picklável.
+    Reconstrói o `Scanner` aqui dentro: `all_rules()` é puro e determinístico, então o
+    catálogo reconstruído neste processo é idêntico ao do processo principal.
+    """
+    scanner = Scanner(config=config)
+    contadores: dict[str, int] = {}
+    findings: list[Finding] = []
+    for path, text, commit in chunk:
+        findings.extend(scanner.scan_text(path, text, commit=commit, contadores=contadores))
+    return findings, contadores
+
+
+def _chunk_units(units: list[Unit], jobs: int) -> list[list[Unit]]:
+    """Fatia `units` em até `jobs` pedaços CONTÍGUOS, preservando a ordem original.
+
+    Contíguo (não round-robin) é o que torna o resultado paralelo idêntico, achado por
+    achado e na mesma ordem, ao sequencial: `ProcessPoolExecutor.map` devolve os pedaços
+    na ordem de entrada, e cada pedaço já visita suas unidades na ordem em que apareceriam
+    no laço sequencial — a junção final não embaralha nada que o `--git-history` dependa
+    (ex.: `_collapse_history` conta "primeiro commit visto" pela ordem de entrada).
+    """
+    jobs = max(1, min(jobs, len(units)))
+    tamanho, resto = divmod(len(units), jobs)
+    pedacos: list[list[Unit]] = []
+    inicio = 0
+    for i in range(jobs):
+        fim = inicio + tamanho + (1 if i < resto else 0)
+        if fim > inicio:
+            pedacos.append(units[inicio:fim])
+        inicio = fim
+    return pedacos
 
 
 #: Delimitadores de bloco PEM (certificado, chave, CRL, requisição).
@@ -615,22 +660,35 @@ class Scanner:
     # -- pipeline único ----------------------------------------------------- #
 
     def scan_units(
-        self, units: Iterable[Unit], skipped: dict[str, int] | None = None
+        self,
+        units: Iterable[Unit],
+        skipped: dict[str, int] | None = None,
+        *,
+        jobs: int = 1,
     ) -> ScanResult:
         """Varre unidades já materializadas. Todo comando desemboca aqui.
 
         ``skipped`` é usado **por referência**: as fontes são preguiçosas e só
         contabilizam o que pularam enquanto o laço abaixo as consome.
+
+        ``jobs`` pede varredura em paralelo (``ProcessPoolExecutor``, G-03d). Com
+        menos de :data:`_JOBS_MIN_UNITS` unidades cai sempre para o caminho sequencial
+        — o resultado (conjunto de ``Finding.fingerprint``, e a própria lista, na
+        mesma ordem) é idêntico a ``jobs=1`` em qualquer caso; o parâmetro só decide
+        COMO o trabalho é feito, nunca O QUE é encontrado.
         """
         started = time.perf_counter()
         contadores: dict[str, int] = skipped if skipped is not None else {}
         for motivo in MOTIVOS_DE_PULO:
             contadores.setdefault(motivo, 0)
-        findings: list[Finding] = []
-        units_scanned = 0
-        for path, text, commit in units:
-            units_scanned += 1
-            findings.extend(self.scan_text(path, text, commit=commit, contadores=contadores))
+        units_list = list(units)
+        units_scanned = len(units_list)
+        if jobs > 1 and units_scanned >= _JOBS_MIN_UNITS:
+            findings = self._scan_units_parallel(units_list, jobs, contadores)
+        else:
+            findings = []
+            for path, text, commit in units_list:
+                findings.extend(self.scan_text(path, text, commit=commit, contadores=contadores))
         findings.sort(key=lambda f: (-f.severity.rank, f.location.path, f.location.line))
         placeholders = contadores.pop("placeholder", 0)
         return ScanResult(
@@ -644,19 +702,40 @@ class Scanner:
             entropia_desligada=not self.config.use_entropy,
         )
 
+    def _scan_units_parallel(
+        self, units: list[Unit], jobs: int, contadores: dict[str, int]
+    ) -> list[Finding]:
+        """Despacha ``units`` para um `ProcessPoolExecutor` e funde os resultados.
+
+        `ProcessPoolExecutor.map` devolve na ORDEM de entrada (não na ordem em que os
+        processos terminam), e `_chunk_units` fatia em pedaços contíguos: a lista final
+        de achados sai idêntica, achado por achado, à que o laço sequencial produziria.
+        """
+        pedacos = _chunk_units(units, jobs)
+        with ProcessPoolExecutor(max_workers=len(pedacos)) as pool:
+            resultados = list(pool.map(_scan_chunk_worker, [self.config] * len(pedacos), pedacos))
+        findings: list[Finding] = []
+        for achados_do_pedaco, contadores_do_pedaco in resultados:
+            findings.extend(achados_do_pedaco)
+            for motivo, qtd in contadores_do_pedaco.items():
+                contadores[motivo] = contadores.get(motivo, 0) + qtd
+        return findings
+
     # -- varredura de arquivos ---------------------------------------------- #
 
-    def scan_paths(self, paths: Iterable[Path | str]) -> ScanResult:
+    def scan_paths(self, paths: Iterable[Path | str], *, jobs: int = 1) -> ScanResult:
         alvos = list(paths)
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
-        result = self.scan_units(_file_units(alvos, self.config, skipped), skipped)
+        result = self.scan_units(_file_units(alvos, self.config, skipped), skipped, jobs=jobs)
         # A proveniência resolve o commit pelo git DESTA raiz (o 1º alvo), não pelo CWD.
         result.root = alvos[0] if alvos else None
         return result
 
     # -- varredura de histórico Git ----------------------------------------- #
 
-    def scan_git_history(self, repo: Path | str, *, permitir_shallow: bool = False) -> ScanResult:
+    def scan_git_history(
+        self, repo: Path | str, *, permitir_shallow: bool = False, jobs: int = 1
+    ) -> ScanResult:
         skipped: dict[str, int] = dict.fromkeys(MOTIVOS_DE_PULO, 0)
         # `avisos` é preenchido por REFERÊNCIA, como `skipped`: a fonte é preguiçosa e
         # só declara o que descobriu enquanto o pipeline a consome.
@@ -671,7 +750,7 @@ class Scanner:
                 avisos=avisos,
             )
         )
-        result = self.scan_units(units, skipped)
+        result = self.scan_units(units, skipped, jobs=jobs)
         result.avisos_de_cobertura = avisos
         result.root = Path(repo)  # o commit vem do git deste repositório, não do CWD
         # O MESMO segredo persiste em dezenas de blobs (todo commit que tocou o arquivo
