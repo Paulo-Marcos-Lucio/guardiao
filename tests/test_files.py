@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -151,3 +152,99 @@ def test_binario_sem_bom_continua_sendo_pulado(tmp_path: Path) -> None:
     resultado = Scanner().scan_paths([alvo])
     assert resultado.findings == []
     assert resultado.skipped["binario"] == 1
+
+
+# ------------------------------------------------------------------ #
+# .gitignore-awareness: o que o próprio Git nunca versionaria não deveria
+# inflar o laudo com achado de arquivo que o commit nem alcança.
+# ------------------------------------------------------------------ #
+pytestmark_git = pytest.mark.skipif(shutil.which("git") is None, reason="git não disponível")
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+
+
+def _repo_git(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    return repo
+
+
+@pytestmark_git
+def test_arquivo_no_gitignore_e_pulado_e_contado(tmp_path: Path) -> None:
+    """Arquivo que o `.gitignore` do projeto exclui (log, dump local, cache de build)
+    não é o que o time versiona nem revisa — varrê-lo como código de verdade só
+    infla o laudo com achado que ninguém vai consertar porque ninguém vai comitar."""
+    repo = _repo_git(tmp_path)
+    (repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    (repo / "debug.log").write_text(f"token leaked: {AWS_KEY_ID}\n", encoding="utf-8")
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", "app.py", ".gitignore")
+    _git(repo, "commit", "-m", "c0")
+
+    resultado = Scanner().scan_paths([repo])
+
+    assert resultado.findings == []
+    assert resultado.skipped["gitignore"] == 1
+
+
+@pytestmark_git
+def test_ignorar_gitignore_desliga_o_comportamento(tmp_path: Path) -> None:
+    """`--ignorar-gitignore` (`Config.respect_gitignore=False`) existe para quem quer
+    auditar justamente o que o Git nunca versionaria — tem de achar o segredo."""
+    repo = _repo_git(tmp_path)
+    (repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    (repo / "debug.log").write_text(f"token leaked: {AWS_KEY_ID}\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-m", "c0")
+
+    resultado = Scanner(config=Config(respect_gitignore=False)).scan_paths([repo])
+
+    achados = [f for f in resultado.findings if f.rule_id == "aws-access-key-id"]
+    assert achados, "--ignorar-gitignore não alcançou o arquivo ignorado"
+    assert resultado.skipped["gitignore"] == 0
+
+
+@pytestmark_git
+def test_arquivo_ja_versionado_nao_e_afetado_pelo_gitignore(tmp_path: Path) -> None:
+    """`.gitignore` só vale para o que o Git NÃO rastreia ainda — um arquivo já
+    comitado (depois adicionado ao `.gitignore` por engano, cenário comum) continua
+    rastreado pelo Git e não pode desaparecer do laudo."""
+    repo = _repo_git(tmp_path)
+    (repo / "config.py").write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    _git(repo, "add", "config.py")
+    _git(repo, "commit", "-m", "c0: versiona com segredo")
+    (repo / ".gitignore").write_text("config.py\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-m", "c1: ignora por engano, mas já estava versionado")
+
+    resultado = Scanner().scan_paths([repo])
+
+    assert [f for f in resultado.findings if f.rule_id == "aws-access-key-id"]
+    assert resultado.skipped["gitignore"] == 0
+
+
+def test_fora_de_repositorio_git_nao_filtra_nada(tmp_path: Path) -> None:
+    """Sem `.git`, não há `.gitignore` de verdade a aplicar — a varredura segue como
+    sempre seguiu, sem o filtro (fail-soft, não fail-closed: aqui não há limite de
+    alcance a declarar, só a ausência do conceito)."""
+    (tmp_path / "app.py").write_text(f'AWS_KEY = "{AWS_KEY_ID}"\n', encoding="utf-8")
+    resultado = Scanner().scan_paths([tmp_path])
+    assert [f for f in resultado.findings if f.rule_id == "aws-access-key-id"]
+    assert resultado.skipped["gitignore"] == 0

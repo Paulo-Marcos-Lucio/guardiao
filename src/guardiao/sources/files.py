@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
 from guardiao.core.config import Config
+
+#: Timeout (s) para os comandos de git que resolvem o `.gitignore`. Mesma lógica do
+#: `--git-history` (``sources/githistory.py``): um repo lento/malicioso não pode
+#: travar a varredura para sempre.
+_GIT_TIMEOUT_S = 30
 
 
 def iter_files(root: Path, config: Config, skipped: dict[str, int] | None = None) -> Iterator[Path]:
@@ -25,9 +32,69 @@ def iter_files(root: Path, config: Config, skipped: dict[str, int] | None = None
             yield root
         return
 
+    ignorados = _arquivos_ignorados_pelo_git(raiz_real) if config.respect_gitignore else None
     for path in _walk(root, raiz_real, config, contador):
-        if _eligible(path, config, contador):
+        if _eligible(path, config, contador, ignorados):
             yield path
+
+
+def _arquivos_ignorados_pelo_git(raiz_real: Path) -> frozenset[Path] | None:
+    """Caminhos (resolvidos) que o Git considera ignorados pelo `.gitignore` dentro de
+    ``raiz_real``. ``None`` quando a raiz não está num repositório Git (ou o `git` não
+    está disponível) — sem repositório não há `.gitignore` de verdade a respeitar, e a
+    varredura segue sem o filtro em vez de falhar.
+
+    Delega a decisão ao PRÓPRIO Git (``ls-files --others --ignored --exclude-standard``)
+    em vez de reimplementar o algoritmo de `.gitignore` (negação com `!`, `**`, âncora
+    por diretório, arquivos `.gitignore` aninhados…) — a fonte de verdade da regra é o
+    Git, e o `--git-history` desta ferramenta já shella para ele pelo mesmo motivo.
+    """
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    try:
+        topo = subprocess.run(
+            ["git", "-C", str(raiz_real), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            timeout=_GIT_TIMEOUT_S,
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):  # pragma: no cover - git ausente/lento
+        return None
+    if topo.returncode != 0:
+        return None  # não é um repositório Git: não há `.gitignore` de verdade aqui
+    toplevel = Path(topo.stdout.strip())
+
+    try:
+        listados = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(toplevel),
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "-z",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            timeout=_GIT_TIMEOUT_S,
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):  # pragma: no cover - git ausente/lento
+        return None
+    if listados.returncode != 0:  # pragma: no cover - fs edge
+        return None
+    return frozenset((toplevel / rel).resolve() for rel in listados.stdout.split("\x00") if rel)
 
 
 def _walk(root: Path, raiz_real: Path, config: Config, skipped: dict[str, int]) -> Iterator[Path]:
@@ -91,13 +158,25 @@ def _skip_dir(entry: Path, config: Config) -> bool:
     return False
 
 
-def _eligible(path: Path, config: Config, skipped: dict[str, int]) -> bool:
+def _eligible(
+    path: Path,
+    config: Config,
+    skipped: dict[str, int],
+    ignorados: frozenset[Path] | None = None,
+) -> bool:
     if path.suffix.lower() in config.binary_exts:
         skipped["binario"] = skipped.get("binario", 0) + 1
         return False
     if config.is_noise_file(path.name):
         skipped["ruido"] = skipped.get("ruido", 0) + 1
         return False
+    if ignorados is not None:
+        try:
+            if path.resolve() in ignorados:
+                skipped["gitignore"] = skipped.get("gitignore", 0) + 1
+                return False
+        except OSError:  # pragma: no cover - fs edge
+            pass
     try:
         if path.stat().st_size > config.max_file_size:
             skipped["tamanho"] = skipped.get("tamanho", 0) + 1
