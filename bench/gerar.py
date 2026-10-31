@@ -30,9 +30,15 @@ def preenche(molde: str) -> str:
     return "".join(saida)
 
 
-def main() -> None:
-    gerados = 0
-    for raiz, _, arquivos in os.walk(BASE):
+def materializa(base: str) -> list[str]:
+    """Materializa todo `.tpl` sob `base`; devolve os caminhos gerados, relativos a `base`.
+
+    Parametrizado (em vez de usar `BASE` direto) para que o teste de invariante do
+    benchmark (`tests/test_bench_avaliar.py`) rode a mesma lógica sobre uma cópia
+    temporária do corpus, sem escrever segredo sintético dentro do repositório.
+    """
+    gerados = []
+    for raiz, _, arquivos in os.walk(base):
         for nome in arquivos:
             if not nome.endswith(".tpl"):
                 continue
@@ -42,9 +48,15 @@ def main() -> None:
                 conteudo = preenche(fh.read())
             with open(destino, "w", encoding="utf-8") as fh:
                 fh.write(conteudo)
-            gerados += 1
-            print(f"  gerado: {os.path.relpath(destino, BASE)}")
-    print(f"{gerados} fixture(s) materializado(s).")
+            gerados.append(os.path.relpath(destino, base))
+    return gerados
+
+
+def main() -> None:
+    gerados = materializa(BASE)
+    for caminho in gerados:
+        print(f"  gerado: {caminho}")
+    print(f"{len(gerados)} fixture(s) materializado(s).")
 
 
 if __name__ == "__main__":
