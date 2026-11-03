@@ -1241,6 +1241,15 @@ def _pw_looks_real(pw: str) -> bool:
         return False
     if any(w in pw for w in ("changeme", "example", "pass", "secret")):
         return False
+    if _predominantemente_url_encoded(pw):
+        # Mesma classe do `"password": "%F0%9F%92%A9"` do `looks_like_secret_value`
+        # (G02c), só que aqui a senha vem de dentro de uma URL Basic-Auth: um emoji ou
+        # espaço percent-encoded (`%F0%9F%92%A9`, `a%20secret`) soma 3 classes de
+        # caractere (dígito+MAIÚSCULA+`%`) e passava pelo ramo abaixo mesmo sem ser
+        # segredo. O corpus de conformidade WHATWG (`tests/models/whatwg.json`) tem
+        # casos assim contra host de FORMA de domínio (`example.com`, `host`), onde o
+        # host não é curto o bastante para cair no ramo de host degenerado.
+        return False
     return (
         is_high_entropy(pw, min_length=12)
         or _num_char_classes(pw) >= 3
