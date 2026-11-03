@@ -68,6 +68,9 @@ def to_document(result: ScanResult) -> dict[str, object]:
             # indistinguíveis para quem consome o relatório.
             "skipped": dict(result.skipped),
             "placeholders_discarded": result.placeholders,
+            # Supressão por ORIGEM (placeholder, allowlist, baseline) — ver
+            # `ScanResult.suppressed`. Chaves sempre presentes, mesmas zeradas.
+            "suppressed": dict(result.suppressed),
             # Limites de ALCANCE (o que a varredura não pôde ver, ex.: objetos
             # inalcançáveis que um clone não recebe). Lista vazia = nenhum limite
             # conhecido; a chave existe sempre, para o consumidor não ter de adivinhar.

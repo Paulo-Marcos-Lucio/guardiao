@@ -59,6 +59,7 @@ def render(result: ScanResult, console: Console | None = None) -> None:
                 f"[dim]({result.units_scanned} unidades, {result.duration_s}s)[/]"
             )
         _render_pulos(result, console)
+        _render_supressao(result, console)
         _render_ruleset(result, console)
         _render_cobertura(result, console)
         return
@@ -82,6 +83,7 @@ def render(result: ScanResult, console: Console | None = None) -> None:
     _render_summary(result, console)
     _render_plano(result, console)
     _render_pulos(result, console)
+    _render_supressao(result, console)
     _render_ruleset(result, console)
     _render_cobertura(result, console)
 
@@ -169,8 +171,28 @@ def _render_pulos(result: ScanResult, console: Console) -> None:
         )
     else:
         console.print("[dim]0 diretório(s) pulado(s): a árvore foi percorrida inteira.[/]")
-    if result.placeholders:
+
+
+def _render_supressao(result: ScanResult, console: Console) -> None:
+    """Auditabilidade da SUPRESSÃO: achado que casou uma regra e foi descartado antes
+    de chegar ao relatório, por origem (placeholder, allowlist, baseline).
+
+    Taxa alta é o sintoma de um baseline/allowlist que começou a esconder achado novo
+    em vez de só achado já triado — por isso o alerta amarelo acima de 30%, e não só
+    o número cru.
+    """
+    total_suprimido = sum(result.suppressed.values())
+    if not total_suprimido:
+        return
+    total_antes_da_supressao = len(result.findings) + total_suprimido
+    taxa = total_suprimido / total_antes_da_supressao
+    detalhe = ", ".join(f"{origem}: {n}" for origem, n in result.suppressed.items() if n)
+    console.print(
+        f"[dim]{total_suprimido} achado(s) suprimido(s) ({detalhe}) — "
+        f"{taxa:.0%} do que teria sido reportado sem supressão.[/]"
+    )
+    if taxa > 0.30:
         console.print(
-            f"[dim]{result.placeholders} valor(es) descartado(s) como placeholder "
-            f"(exemplo de documentação, template ou senha fraca canônica).[/]"
+            f"[bold yellow]⚠ Taxa de supressão alta ({taxa:.0%}, acima de 30%)[/] — "
+            "confira se o baseline/allowlist não está escondendo achado novo."
         )
