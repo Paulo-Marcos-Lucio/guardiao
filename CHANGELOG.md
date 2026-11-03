@@ -47,6 +47,15 @@ Bateria empírica de causa-raiz, cada item travado por invariante property-based
   FOI ANALISADO"** quando o catálogo é parcial. "Não rodei essa regra" e "rodei e passou" deixam de ser a
   mesma saída.
 
+### Adicionado — portão anti-regressão do benchmark (G-13c)
+
+- **`.github/workflows/benchmark.yml`** varre `bench/` a cada push/PR e reprova se o recall cair ou o
+  FP/1k subir em relação ao teto **versionado** em `bench/limpo/teto.json` (`bench/portao.py`). Antes, os
+  dois números só existiam para leitura humana em `bench/avaliar.py` — nada no CI impedia um PR piorar os
+  dois sem que ninguém notasse antes da revisão. Piso inicial = última medição real do corpus (13/14
+  recall, 0 FP em 31 linhas de `bench/negativos`); quem melhorar a detecção de propósito sobe o teto na
+  mesma mudança (regra da casa em `bench/README.md`).
+
 ## [0.5.0] — 2026-08-05
 
 ### Corrigido — calibração anti-falso-positivo (medição de campo 2026-08-05)
