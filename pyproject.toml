@@ -59,7 +59,9 @@ target-version = "py310"
 src = ["src", "tests"]
 # Fixtures do corpus de referência são deliberadamente "sujos": segredos sintéticos,
 # literais soltos e formatação atípica são o objeto de teste, não descuido.
-extend-exclude = ["bench/positivos", "bench/negativos"]
+# `bench/limpo/.cache` é o clone de três repositórios de TERCEIRO (httpx, requests,
+# flask) baixado por `baixar.py` — nunca versionado (ver .gitignore) e nunca lintado aqui.
+extend-exclude = ["bench/positivos", "bench/negativos", "bench/limpo/.cache"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
