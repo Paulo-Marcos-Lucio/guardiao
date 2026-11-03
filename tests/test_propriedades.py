@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import base64
 
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
+from guardiao.rules.br import cnpj_valido, cpf_valido
 from guardiao.rules.definitions import looks_like_secret_token
 from guardiao.sources.files import decode_text_bytes
 
@@ -163,3 +164,53 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=300)
+@given(
+    base=st.text(alphabet="0123456789", min_size=9, max_size=9),
+    dv=st.text(alphabet="0123456789", min_size=2, max_size=2),
+)
+def test_cpf_sem_dv_valido_nunca_vira_achado(base: str, dv: str) -> None:
+    """INVARIANTE 7 (item G-15pub da fila): CPF cujo dígito verificador NÃO
+    confere nunca gera achado `cpf` — para QUALQUER base de 9 dígitos e QUALQUER
+    par de dígitos verificadores, não só os exemplos que alguém pensou
+    (`000.000.000-00`, `123.456.789-10`). Sem este freio a regex casaria
+    qualquer número no formato — número de pedido, código de produto — e o
+    relatório chamaria de "dado pessoal (LGPD)" algo que não é CPF."""
+    numero = base + dv
+    assume(not cpf_valido(numero))  # amostra caiu num CPF válido por acaso: não é o caso testado
+    texto = f"cpf do cliente: {numero[0:3]}.{numero[3:6]}.{numero[6:9]}-{numero[9:11]}"
+    achados = [a for a in Scanner().scan_text("x.txt", texto) if a.rule_id == "cpf"]
+    assert achados == [], f"CPF com DV inválido {numero!r} virou achado"
+
+
+@settings(max_examples=300)
+@given(
+    base=st.text(alphabet="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=12, max_size=12),
+    dv=st.text(alphabet="0123456789", min_size=2, max_size=2),
+)
+def test_cnpj_sem_dv_valido_nunca_vira_achado(base: str, dv: str) -> None:
+    """INVARIANTE 8 (item G-15pub da fila): CNPJ — numérico OU alfanumérico (o
+    formato vigente desde 31/07/2026, IN RFB nº 2.229/2024) — cujo dígito
+    verificador NÃO confere nunca gera achado `cnpj`, para QUALQUER base de 12
+    caracteres (dígito ou letra A-Z) e QUALQUER par de dígitos verificadores."""
+    numero = base + dv
+    assume(not cnpj_valido(numero))
+    texto = f"cnpj: {base[0:2]}.{base[2:5]}.{base[5:8]}/{base[8:12]}-{dv}"
+    achados = [a for a in Scanner().scan_text("x.txt", texto) if a.rule_id == "cnpj"]
+    assert achados == [], f"CNPJ com DV inválido {numero!r} virou achado"
+
+
+@settings(max_examples=200)
+@given(
+    base=st.text(alphabet="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=12, max_size=12),
+    dv=st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=1, max_size=2),
+)
+def test_cnpj_com_letra_no_dv_nunca_e_valido(base: str, dv: str) -> None:
+    """INVARIANTE 9 (item G-15pub da fila): os 2 dígitos verificadores do CNPJ
+    são sempre NUMÉRICOS — inclusive no formato alfanumérico, onde só as 12
+    primeiras posições aceitam letra. `cnpj_valido` nunca aceita letra no DV,
+    para QUALQUER base e QUALQUER sufixo com pelo menos uma letra."""
+    dv_completo = dv.rjust(2, "0") if len(dv) == 1 else dv
+    assert not cnpj_valido(base + dv_completo), f"DV alfabético {dv_completo!r} foi aceito"
