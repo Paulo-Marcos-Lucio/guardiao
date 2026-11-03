@@ -169,6 +169,12 @@ def scan(
         "--permitir-shallow",
         help="Aceita rodar --git-history em clone raso (o histórico varrido fica incompleto).",
     ),
+    since_commit: str | None = typer.Option(
+        None,
+        "--since-commit",
+        help="Com --git-history, varre só o intervalo <since-commit>..HEAD (incremental) "
+        "em vez do histórico inteiro. O recorte é declarado no laudo.",
+    ),
     baseline: Path | None = typer.Option(
         None, "--baseline", help="Suprime achados presentes neste baseline."
     ),
@@ -219,7 +225,9 @@ def scan(
 
     if git_history:
         try:
-            result = scanner.scan_git_history(targets[0], permitir_shallow=permitir_shallow)
+            result = scanner.scan_git_history(
+                targets[0], permitir_shallow=permitir_shallow, since_commit=since_commit
+            )
         except GitError as exc:
             err_console.print("[red]Não foi possível ler o histórico Git:[/]", txt(exc))
             raise typer.Exit(2) from exc
