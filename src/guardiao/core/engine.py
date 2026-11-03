@@ -53,7 +53,8 @@ def _e_minificado(path: str, text: str) -> bool:
     return max((len(linha) for linha in linhas), default=0) > 400
 
 
-#: Regras HEURISTICAS rebaixadas (nao skip) em arquivos de teste; regras de FORMATO imunes.
+#: Regras HEURISTICAS rebaixadas (nao skip) em arquivos de teste ou docs/*.rst; regras
+#: de FORMATO (private-key, token de fornecedor) nunca entram aqui e por isso são imunes.
 _DEMOTABLE_IN_TESTS: frozenset[str] = frozenset({"generic-assignment", "high-entropy-string"})
 
 
@@ -348,6 +349,7 @@ class Scanner:
         contadores = {} if contadores is None else contadores
         rules = self._rules_for(path, text)
         em_teste = self.config.demote_tests and self.config.is_test_path(path)
+        em_doc = self.config.demote_docs and self.config.is_doc_path(path)
         minificado = _e_minificado(path, text)
         dentro_de_pem = False
         for lineno, line in enumerate(text.split("\n"), start=1):
@@ -473,9 +475,9 @@ class Scanner:
             # 3) Um Finding por match, todos com o mesmo preview seguro.
             for rule, start, secret, entropy in hits:
                 severity = rule.severity
-                if em_teste and rule.id in _DEMOTABLE_IN_TESTS:
-                    # Sinal suave: em teste, o palpite heurístico vale menos — mas
-                    # continua REPORTADO (rebaixado), nunca suprimido.
+                if (em_teste or em_doc) and rule.id in _DEMOTABLE_IN_TESTS:
+                    # Sinal suave: em teste ou em docs/*.rst, o palpite heurístico vale
+                    # menos — mas continua REPORTADO (rebaixado), nunca suprimido.
                     severity = _one_notch_down(severity)
                 yield Finding(
                     rule_id=rule.id,
