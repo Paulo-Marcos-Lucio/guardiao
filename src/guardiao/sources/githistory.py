@@ -101,6 +101,11 @@ AVISO_CLONE = (
 )
 
 
+#: Chaves de ``cobertura`` (ver :func:`iter_history_blobs`) — contagem SEMPRE presente,
+#: mesmo zerada, para distinguir "não tem objeto inalcançável" de "não contei".
+COBERTURA_ODB: tuple[str, ...] = ("objetos_no_odb", "alcancaveis", "inalcancaveis_varridos")
+
+
 def iter_history_blobs(
     repo: Path,
     *,
@@ -108,15 +113,29 @@ def iter_history_blobs(
     skipped: dict[str, int] | None = None,
     permitir_shallow: bool = False,
     avisos: list[str] | None = None,
+    cobertura: dict[str, int] | None = None,
 ) -> Iterator[Blob]:
     """Itera pelos blobs versionados em qualquer ponto da história.
 
     ``avisos`` (opcional) acumula limites de ALCANCE conhecidos — o que a varredura
     sabidamente não pôde ver. Diferente de ``skipped``, que conta o que foi pulado.
+
+    ``cobertura`` (opcional) acumula a PARTIÇÃO do ODB (:data:`COBERTURA_ODB`):
+    quantos objetos existem no total, quantos são alcançáveis a partir de alguma
+    ref (``git rev-list --objects --all``) e quantos INALCANÇÁVEIS foram mesmo
+    assim varridos — o número que prova que "objeto solto" (G-08, ver
+    :data:`_TIPOS_VARRIDOS`) não é promessa vazia: um `commit --amend` deixa o
+    blob antigo solto no ODB, fora de `rev-list`, e esta função o varre do mesmo
+    jeito (ver ``test_blob_solto_de_commit_amend_e_varrido``). Sem este contador,
+    essa garantia era só um comentário no código — ninguém de fora conseguia
+    conferir quantos objetos inalcançáveis o laudo de fato cobriu.
     """
     repo = Path(repo)
     contador = {} if skipped is None else skipped
     declarados = [] if avisos is None else avisos
+    partilha = {} if cobertura is None else cobertura
+    for chave in COBERTURA_ODB:
+        partilha.setdefault(chave, 0)
 
     # 0) Clone raso só contém os commits baixados: varrer "todo o histórico" nele é
     #    uma promessa falsa. Falha fechado — o CI precisa saber que não olhou tudo.
@@ -146,13 +165,20 @@ def iter_history_blobs(
             if refname:
                 yield Blob(sha="", path="<nome de branch/tag>", text=refname)
 
-    # 1) Mapa sha->path (o primeiro caminho visto para cada blob). Uma chamada só.
+    # 1) Mapa sha->path (o primeiro caminho visto para cada blob) e o conjunto de
+    #    shas ALCANÇÁVEIS a partir de alguma ref. Uma chamada só. `rev-list --objects`
+    #    lista commit/tree/blob COM OU SEM caminho (commit e tree de topo não têm) — o
+    #    conjunto de alcançáveis precisa do sha de toda linha, não só das que têm path,
+    #    senão um commit solto (nunca existe) inflaria "inalcançável" por engano.
     listing = _run(repo, "rev-list", "--objects", "--all")
     if not listing.ok:
         raise GitError(listing.err.strip() or "git rev-list falhou")
     paths: dict[str, str] = {}
+    alcancaveis: set[str] = set()
     for line in listing.out.splitlines():
         sha, _, path = line.partition(" ")
+        if sha:
+            alcancaveis.add(sha)
         if path:
             paths.setdefault(sha, path)
 
@@ -189,6 +215,13 @@ def iter_history_blobs(
             except ValueError:  # pragma: no cover - saída inesperada
                 continue
 
+            # Todo header que o `--batch-all-objects` emite é um objeto do ODB —
+            # inclusive `tree`, que nunca é varrido (é só estrutura de diretório).
+            partilha["objetos_no_odb"] += 1
+            e_alcancavel = sha in alcancaveis
+            if e_alcancavel:
+                partilha["alcancaveis"] += 1
+
             # Decidir ANTES de ler: um blob de 100 MB não pode virar 100 MB de RAM
             # só para ser descartado pelo limite logo depois.
             if otype not in _TIPOS_VARRIDOS or size > max_bytes:
@@ -197,6 +230,13 @@ def iter_history_blobs(
                 if otype in _TIPOS_VARRIDOS:
                     contador["tamanho"] = contador.get("tamanho", 0) + 1
                 continue
+
+            # Chegou até aqui: é de um tipo varrido e dentro do limite de tamanho —
+            # vai ser lido e oferecido ao motor de regras. Se não é alcançável por
+            # nenhuma ref, é exatamente o objeto solto que `rev-list --objects --all`
+            # (usado por ferramentas que só confiam nessa lista) nunca veria.
+            if not e_alcancavel:
+                partilha["inalcancaveis_varridos"] += 1
 
             content = _read_exact(stdout, size)
             stdout.read(1)  # newline após o conteúdo
