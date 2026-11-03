@@ -28,3 +28,13 @@ ruff check . && ruff format --check . && mypy src && pytest
    documentação, garanta que caem no filtro de placeholder.
 
 Regras são **dados declarativos** — evite lógica nova no motor sempre que possível.
+
+## Definição de pronto para correção de defeito
+
+Corrigir o exemplo que apareceu no relatório e chamar de resolvido não fecha
+o item: é preciso um teste que falhava contra o código anterior à correção,
+mais um invariante — property-based com Hypothesis quando a classe for uma
+família de entradas — que impeça a classe inteira de voltar. Critério e
+exemplos reais em [`docs/definicao-de-pronto.md` da
+Sentinela](https://github.com/Paulo-Marcos-Lucio/sentinela/blob/main/docs/definicao-de-pronto.md),
+válido para as cinco ferramentas da suíte, não só para ela.
