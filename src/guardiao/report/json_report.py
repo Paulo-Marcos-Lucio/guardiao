@@ -18,6 +18,17 @@ from guardiao.rules.definitions import OWASP_EDITION
 
 SCHEMA = "suite-appsec/1"
 
+#: Frase fixa de G-09: "unknown" é o estado de quem NÃO chamou a API do provedor para
+#: confirmar se o segredo ainda é válido — nunca o estado de um achado que foi tirado do
+#: relatório. Sem esta nota, um consumidor automatizado poderia ler `unknown` como "sem
+#: significado" e descartar o achado na própria esteira, exatamente o oposto do que a
+#: ferramenta garante (achado rebaixado ou não-verificado nunca é suprimido, só rotulado).
+NOTA_VALIDITY = (
+    "'unknown' é 'não verificado' — nenhuma requisição ao provedor foi emitida para "
+    "confirmar se o segredo ainda é válido. Não é 'achado descartado': o achado continua "
+    "no relatório como qualquer outro."
+)
+
 
 def finding_to_dict(finding: Finding) -> dict[str, object]:
     """Serializa um achado **sem** o segredo cru."""
@@ -82,6 +93,18 @@ def to_document(result: ScanResult) -> dict[str, object]:
                 "rules_omitted": list(result.regras_omitidas),
                 "entropy_disabled": result.entropia_desligada,
                 "partial": result.ruleset_parcial(),
+            },
+            # Validade do SEGREDO (G-09): hoje nenhuma verificação ativa existe (chamar a
+            # API do provedor para confirmar se ainda está vivo), então todo achado é
+            # `unknown` por construção — `verified`/`unverified` ficam reservados para
+            # quando essa verificação existir, e `requisicoes_emitidas` é o contador
+            # auditável de quantas chamadas saíram (hoje sempre 0: nenhuma rede foi tocada).
+            "validity": {
+                "verified": 0,
+                "unverified": 0,
+                "unknown": len(result.findings),
+                "requisicoes_emitidas": 0,
+                "nota": NOTA_VALIDITY,
             },
         },
         "findings": [finding_to_dict(f) for f in result.findings],
