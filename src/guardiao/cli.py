@@ -17,6 +17,7 @@ from rich.text import Text
 from guardiao import __version__
 from guardiao.core.baseline import apply_baseline, load_baseline, save_baseline
 from guardiao.core.config import Config
+from guardiao.core.configfile import resolve_config_file
 from guardiao.core.engine import Scanner, ScanResult
 from guardiao.core.models import Severity
 from guardiao.report import console as console_report
@@ -107,17 +108,52 @@ def _build_config(
     max_file_size: int = Config.max_file_size,
     max_line_length: int = Config.max_line_length,
     incluir_testes: bool = False,
+    config_path: Path | None = None,
 ) -> Config:
-    _validar_selecao(only, skip, skip_category)
+    """Monta a `Config` final com precedência **CLI > `.guardiao.toml` > default**.
+
+    Cada parâmetro de CLI chega aqui com o MESMO default do `Config`/`False` do próprio
+    comando; não há como distinguir "o usuário passou o default" de "não passou nada" —
+    por isso a regra prática é: valor de CLI diferente do default embutido é EXPLÍCITO e
+    vence; senão, o arquivo decide (se tiver opinião); senão, o default embutido.
+    """
+    arquivo = resolve_config_file(config_path)
+
+    only_final = tuple(only) if only else arquivo.only
+    skip_final = tuple(skip) if skip else arquivo.skip
+    skip_category_final = tuple(skip_category) if skip_category else arquivo.skip_categories
+    _validar_selecao(list(only_final), list(skip_final), list(skip_category_final))
+
+    use_entropy = (
+        False if no_entropy else (True if arquivo.use_entropy is None else arquivo.use_entropy)
+    )
+    scan_noise_files = (
+        True
+        if scan_lockfiles
+        else (False if arquivo.scan_noise_files is None else arquivo.scan_noise_files)
+    )
+    demote = False if incluir_testes else (True if arquivo.demote is None else arquivo.demote)
+    resolved_max_file_size = (
+        max_file_size
+        if max_file_size != Config.max_file_size
+        else (arquivo.max_file_size if arquivo.max_file_size is not None else max_file_size)
+    )
+    resolved_max_line_length = (
+        max_line_length
+        if max_line_length != Config.max_line_length
+        else (arquivo.max_line_length if arquivo.max_line_length is not None else max_line_length)
+    )
+
     return Config(
-        only=frozenset(only),
-        skip=frozenset(skip),
-        skip_categories=frozenset(skip_category),
-        use_entropy=not no_entropy,
-        scan_noise_files=scan_lockfiles,
-        max_file_size=max_file_size,
-        max_line_length=max_line_length,
-        demote_tests=not incluir_testes,
+        only=frozenset(only_final),
+        skip=frozenset(skip_final),
+        skip_categories=frozenset(skip_category_final),
+        use_entropy=use_entropy,
+        scan_noise_files=scan_noise_files,
+        max_file_size=resolved_max_file_size,
+        max_line_length=resolved_max_line_length,
+        demote_tests=demote,
+        allowlist_paths=frozenset(arquivo.allowlist_paths),
     )
 
 
@@ -202,6 +238,14 @@ def scan(
     skip_category: list[str] = typer.Option(
         [], "--skip-category", help="Pula categorias inteiras (ex.: pii)."
     ),
+    config_path: Path | None = typer.Option(
+        None,
+        "--config",
+        exists=True,
+        dir_okay=False,
+        help="Caminho de um .guardiao.toml (sobrepõe o .guardiao.toml do diretório atual, "
+        "se houver). TOML inválido aborta com código 2.",
+    ),
 ) -> None:
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
@@ -214,6 +258,7 @@ def scan(
         max_file_size,
         max_line_length,
         incluir_testes,
+        config_path,
     )
     scanner = Scanner(config=config)
 
@@ -289,13 +334,23 @@ def pre_commit(
     skip_category: list[str] = typer.Option(
         [], "--skip-category", help="Pula categorias inteiras (ex.: pii)."
     ),
+    config_path: Path | None = typer.Option(
+        None,
+        "--config",
+        exists=True,
+        dir_okay=False,
+        help="Caminho de um .guardiao.toml (sobrepõe o .guardiao.toml do diretório atual, "
+        "se houver). TOML inválido aborta com código 2.",
+    ),
 ) -> None:
     """Varre o conteúdo **em stage** — para uso como hook de pre-commit.
 
     Usa a MESMA `Config` e o mesmo motor do `scan`: um arquivo que o CI considera
     limpo não pode bloquear o commit (e vice-versa).
     """
-    config = _build_config(only, skip, skip_category, no_entropy, scan_lockfiles)
+    config = _build_config(
+        only, skip, skip_category, no_entropy, scan_lockfiles, config_path=config_path
+    )
     scanner = Scanner(config=config)
     skipped: dict[str, int] = {}
     result = scanner.scan_units(_staged_units(config, skipped), skipped)
@@ -320,6 +375,9 @@ def _staged_units(config: Config, skipped: dict[str, int]) -> list[tuple[str, st
     """Unidades a partir do índice do Git, filtradas pela mesma Config do `scan`."""
     units: list[tuple[str, str, str | None]] = []
     for path in _staged_paths():
+        if config.is_allowlisted_path(path):
+            skipped["allowlist"] = skipped.get("allowlist", 0) + 1
+            continue
         if Path(path).suffix.lower() in config.binary_exts:
             skipped["binario"] = skipped.get("binario", 0) + 1
             continue

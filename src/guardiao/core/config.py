@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import PurePath
 
 # Sinais de que um arquivo é de TESTE — usados como SINAL SUAVE (rebaixa severidade
@@ -136,6 +137,14 @@ class Config:
     #: Rebaixa a severidade de achados HEURÍSTICOS (generic-assignment, high-entropy)
     #: em arquivos de teste — sinal suave, não skip. `--incluir-testes` desliga.
     demote_tests: bool = True
+    #: Padrões `fnmatch` (`[allowlist] paths` do `.guardiao.toml` — a mesma convenção do
+    #: gitleaks) que excluem o arquivo da varredura POR COMPLETO. Diferente do rebaixe de
+    #: `demote_tests`: aqui não sobra achado nenhum, nem rebaixado — é decisão explícita
+    #: do projeto, não palpite do motor. Nota: `fnmatch` não é glob de diretório — um
+    #: único `*` já casa `/`, então `"legacy/*"` cobre qualquer profundidade dentro de
+    #: `legacy/` (não precisa de `**`). Pastas que o motor já exclui por default
+    #: (`vendor`, `node_modules`… — ver `DEFAULT_EXCLUDE_DIRS`) nunca chegam a testar isto.
+    allowlist_paths: frozenset[str] = field(default_factory=frozenset)
 
     def is_test_path(self, path: str) -> bool:
         """Heurística: este caminho é de um arquivo de teste?"""
@@ -143,6 +152,14 @@ class Config:
         if any(seg.lower() in _TEST_DIR_SEGMENTS for seg in pure.parts):
             return True
         return bool(_TEST_FILE_RE.match(pure.name))
+
+    def is_allowlisted_path(self, path: str) -> bool:
+        """Caminho casa algum glob de `[allowlist] paths`? Pulado por completo, não só
+        rebaixado — é a exclusão explícita de projeto, não um sinal suave do motor."""
+        if not self.allowlist_paths:
+            return False
+        pure = str(path).replace("\\", "/")
+        return any(fnmatch(pure, pattern) for pattern in self.allowlist_paths)
 
     def is_noise_file(self, name: str) -> bool:
         """Lockfile/gerado/minificado — pulado por padrão (ruído de hashes)."""
