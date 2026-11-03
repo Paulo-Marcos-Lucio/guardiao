@@ -16,7 +16,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import looks_like_secret_token
+from guardiao.rules.definitions import looks_like_secret_token, looks_like_secret_value
 from guardiao.sources.files import decode_text_bytes
 
 # Palavras legíveis (com vogal) para montar identificadores de código sintéticos.
@@ -123,6 +123,34 @@ def test_identificador_de_codigo_nunca_e_segredo(partes: list[str], sep: str) ->
     if len(ident) < 24:  # a regra de entropia só considera cadeias longas
         return
     assert not looks_like_secret_token(ident), f"identificador {ident!r} tratado como segredo"
+
+
+@settings(max_examples=300)
+@given(
+    partes=st.lists(st.sampled_from(_PALAVRAS), min_size=3, max_size=6),
+    sep=st.sampled_from(["_", "-"]),
+)
+def test_identificador_de_codigo_nunca_e_segredo_na_generic_assignment(
+    partes: list[str], sep: str
+) -> None:
+    """INVARIANTE 4b (G-01c): o MESMO identificador legível que a INVARIANTE 4 protege do
+    lado da entropia não podia ser aceito como VALOR da `generic-assignment` — o gate de
+    identificador vivia só em `looks_like_secret_token`. Faltava o espelho do lado do piso
+    multi-sinal (`looks_like_secret_value`): `cert_encrypted_private_key =
+    "cert_encrypted_private_key_file"` virava achado porque `encrypted` tem corrida de 6
+    consoantes, exatamente a classe que a INVARIANTE 4 já fechara para a entropia.
+    """
+    ident = sep.join(partes)
+    if len(ident) < 24:
+        return
+    assert not looks_like_secret_value(ident), f"identificador {ident!r} tratado como segredo"
+    achados = [
+        a.rule_id
+        for a in Scanner().scan_text("app.py", f'cert_encrypted_private_key = "{ident}"\n')
+    ]
+    assert "generic-assignment" not in achados, (
+        f"identificador {ident!r} achado via generic-assignment"
+    )
 
 
 @settings(max_examples=200)
