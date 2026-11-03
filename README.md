@@ -16,7 +16,7 @@
 [![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
 [![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
-[![297 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
+[![299 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
 [![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-qualidade-de-engenharia--método)
 
 </div>
