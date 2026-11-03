@@ -10,17 +10,24 @@ detectar adulteração posterior. Três campos resolvem isso:
   ``../outro-repo`` carimbava o HEAD da ferramenta — silenciosamente errado, e é
   justamente a proveniência que existe para desmentir. Em pacote instalado sem
   git, cai em ``None`` sem quebrar.
-- ``ruleset_hash`` — sha256 do catálogo de regras. Muda quando qualquer regra
-  muda; dois laudos com o mesmo hash foram medidos com o mesmo conjunto de
-  regras.
+- ``ruleset_hash`` — sha256 do catálogo de regras (nativo + externas carregadas
+  por ``--gitleaks-config``/``--rules-file``, quando houver). Muda quando
+  qualquer regra muda, nativa ou externa; dois laudos com o mesmo hash foram
+  medidos com o mesmo conjunto de regras.
 - ``artifact_sha256`` — sha256 do próprio documento (sem o campo), canônico. O
   cliente recomputa e detecta adulteração.
+
+Dívida fechada (G-05, §0.4): antes desta versão o hash só via o catálogo NATIVO
+— um laudo gerado com ``--rules-file``/``--gitleaks-config`` carimbava o mesmo
+``ruleset_hash`` de uma varredura sem nenhuma regra externa, mentindo sobre o
+que de fato julgou o código. ``ruleset_hash`` agora aceita o texto bruto de
+cada arquivo externo carregado (``externas``) e o inclui no material hasheado.
 
 Receita de verificação (idêntica nas ferramentas da suíte, para o cliente conferir
 os quatro laudos com UM procedimento só):
 
 - ``ruleset_hash`` = ``sha256:`` + sha256 do catálogo canônico (chaves ordenadas,
-  separadores compactos), com a versão do schema do catálogo (``guardiao-ruleset/1``)
+  separadores compactos), com a versão do schema do catálogo (``guardiao-ruleset/2``)
   embutida no material hasheado — mudar o schema muda o hash.
 - ``artifact_sha256`` = sha256 da serialização canônica do documento com o próprio
   campo em ``None``/ausente (``sort_keys=True, separators=(',',':'), ensure_ascii=False``).
@@ -35,6 +42,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +59,10 @@ _SHA_COMPLETO = re.compile(r"^[0-9a-f]{40}$")
 #: Mudar a forma do catálogo (colunas hasheadas, semântica de um campo) obriga a subir isto,
 #: e o hash muda junto — dois laudos com o mesmo ``ruleset_hash`` foram medidos com o mesmo
 #: catálogo E o mesmo schema. Padrão da suíte: ``<tool>-ruleset/<n>``.
-RULESET_SCHEMA = "guardiao-ruleset/1"
+#: /2 (G-05, §0.4): o material hasheado passou a incluir ``externas`` — o texto bruto das
+#: regras carregadas por ``--gitleaks-config``/``--rules-file``. Um hash calculado antes
+#: desta versão não é comparável a um calculado depois, mesmo com o catálogo nativo igual.
+RULESET_SCHEMA = "guardiao-ruleset/2"
 
 #: Sentido do campo ``commit`` no envelope. No Guardião o commit é o do repositório
 #: **auditado** (o alvo da varredura), não o da ferramenta — daí ``"target"``. O
@@ -104,12 +115,20 @@ def commit(root: Path | str | None = None) -> str | None:
     return _git_head(root)
 
 
-def ruleset_hash() -> str:
+def ruleset_hash(externas: Sequence[str] = ()) -> str:
     """``sha256:<hex>`` estável do catálogo de regras (id, severidade, OWASP/CWE, texto).
 
     O prefixo ``sha256:`` é auto-descritivo (o cliente sabe qual algoritmo recomputar sem
     adivinhar pelo comprimento) e uniforme na suíte. A versão do schema do catálogo
     (``RULESET_SCHEMA``) entra no material hasheado: reformar o catálogo muda o hash.
+
+    ``externas`` é o texto BRUTO de cada arquivo de regra carregado por
+    ``--gitleaks-config``/``--rules-file`` (G-05, §0.4) — não o ``Rule`` compilado.
+    Hashear o texto, não o resultado da compilação, significa que até uma mudança
+    cosmética no arquivo de origem (reordenar regras, um comentário) já move o hash:
+    o laudo prova com QUAL arquivo ele foi gerado, não só com qual comportamento. A
+    ordem dos arquivos na linha de comando não importa — a lista é ordenada antes de
+    entrar no material hasheado.
     """
     itens = [
         [
@@ -123,7 +142,12 @@ def ruleset_hash() -> str:
         for rule in sorted(all_rules(), key=lambda r: r.id)
     ]
     blob = json.dumps(
-        {"schema": RULESET_SCHEMA, "owasp_edition": OWASP_EDITION, "rules": itens},
+        {
+            "schema": RULESET_SCHEMA,
+            "owasp_edition": OWASP_EDITION,
+            "rules": itens,
+            "externas": sorted(externas),
+        },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
