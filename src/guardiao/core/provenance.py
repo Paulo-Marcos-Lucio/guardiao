@@ -23,9 +23,20 @@ os quatro laudos com UM procedimento só):
   separadores compactos), com a versão do schema do catálogo (``guardiao-ruleset/1``)
   embutida no material hasheado — mudar o schema muda o hash.
 - ``artifact_sha256`` = sha256 da serialização canônica do documento com o próprio
-  campo em ``None``/ausente (``sort_keys=True, separators=(',',':'), ensure_ascii=False``).
+  campo em ``None``/ausente (``sort_keys=True, separators=(',',':'), ensure_ascii=False``),
+  e com ``summary.duration_s`` também fora do material hasheado (ver nota abaixo) —
+  o campo continua no laudo entregue, só não entra no hash.
 - ``commit_scope`` no envelope diz o SENTIDO do ``commit``: para o Guardião é
   ``"target"`` — o commit é o do repositório AUDITADO, não o da ferramenta.
+
+Nota sobre ``summary.duration_s`` (AUD0908): é telemetria de parede — quanto a
+varredura levou, não o que ela encontrou. Duas execuções sobre a MESMA entrada têm
+os MESMOS achados mas duration_s quase sempre diferente (relógio real), e antes
+disto isso bastava para mudar o ``artifact_sha256`` — um laudo "reproduzível" que na
+prática nunca repetia. Esteira e Chaveiro não têm o problema porque nunca carregam
+telemetria de parede no documento; o Guardião carrega (é informação útil para quem
+lê o laudo), então a função abaixo a exclui do material hasheado em vez de excluir
+do documento.
 """
 
 from __future__ import annotations
@@ -132,12 +143,17 @@ def ruleset_hash() -> str:
 
 
 def artifact_sha256(document: dict[str, Any]) -> str:
-    """sha256 canônico do documento **excluindo** o próprio campo de hash.
+    """sha256 canônico do documento **excluindo** o próprio campo de hash e a
+    telemetria de parede (``summary.duration_s``, ver módulo).
 
     Serialização determinística (chaves ordenadas, sem espaços) para que o
-    cliente recompute o mesmo valor a partir do JSON recebido.
+    cliente recompute o mesmo valor a partir do JSON recebido — seguindo a
+    mesma exclusão de ``duration_s``.
     """
     sem_campo = {k: v for k, v in document.items() if k != "artifact_sha256"}
+    summary = sem_campo.get("summary")
+    if isinstance(summary, dict) and "duration_s" in summary:
+        sem_campo["summary"] = {k: v for k, v in summary.items() if k != "duration_s"}
     return canonical_sha256(sem_campo)
 
 
