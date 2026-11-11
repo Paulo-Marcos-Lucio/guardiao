@@ -19,6 +19,7 @@ from guardiao.rules.base import Rule
 from guardiao.rules.definitions import (
     HASH_CONTEXT,
     PUBLIC_KEY_CONTEXT,
+    STRONG_CREDENTIAL_CONTEXT,
     is_obvious_fake,
     is_probable_hash_or_id,
     linha_tem_hash_cripto,
@@ -239,6 +240,16 @@ _HASH_CONTEXT_RE = re.compile(
 # entropia ali é publicável por design, não credencial (FP-02).
 _PUBKEY_CONTEXT_RE = re.compile("|".join(re.escape(k) for k in PUBLIC_KEY_CONTEXT), re.IGNORECASE)
 
+# Keyword FORTE de credencial (authorization/bearer/token/apikey) OU header `x-api-*`
+# (x-api-key, x-api-token, x-api-secret…) na linha: sobrepõe o filtro de forma de
+# hash/UUID (FN AUD0908-guardiao-fn-token-hash-shape-bare) — ver STRONG_CREDENTIAL_CONTEXT.
+_STRONG_CREDENTIAL_CONTEXT_RE = re.compile(
+    rf"(?:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))"
+    rf"(?:{'|'.join(re.escape(k) for k in STRONG_CREDENTIAL_CONTEXT)})(?![A-Za-z0-9])"
+    r"|x-api-[a-z]+",
+    re.IGNORECASE,
+)
+
 # Blob base64 PÚBLICO na linha: chave SSH pública (`ssh-rsa AAAA…`), data-URI
 # (`data:image/png;base64,…`) ou cabeçalho PEM público/certificado embutido numa string
 # (com `\n` literal, então o rastreio de bloco PEM multi-linha não pega). O alfabeto base64
@@ -411,15 +422,33 @@ class Scanner:
                             fim < len(raw_line) and _e_letra_nao_ascii(raw_line[fim])
                         ):
                             continue  # colado a letra acentuada: é palavra natural, não token (FP-07)
-                        # Aceitação multi-sinal: entropia por-alfabeto OU
-                        # impronunciabilidade (blob MAIÚSCULO aleatório que o limiar de
-                        # entropia subestima). Segmento de path aleatório entra por aqui.
-                        if not looks_like_secret_token(secret) or tem_letra_nao_ascii(secret):
+                        hash_ou_id = is_probable_hash_or_id(secret)
+                        contexto_credencial_forte = bool(
+                            _STRONG_CREDENTIAL_CONTEXT_RE.search(raw_line)
+                        )
+                        # Aceitação multi-sinal: entropia por-alfabeto OU impronunciabilidade
+                        # (blob MAIÚSCULO aleatório que o limiar de entropia subestima) OU —
+                        # quando a linha carrega keyword FORTE de credencial (authorization/
+                        # bearer/token/apikey/x-api-*) — a própria forma de UUID/40-hex, que
+                        # sozinha REPROVA entropia/impronunciabilidade (é estrutura regular,
+                        # não ruído) e por isso nunca chegaria nem a ser considerada sem este
+                        # terceiro ramo. É o contexto sobrepondo a forma (FN
+                        # AUD0908-guardiao-fn-token-hash-shape-bare), não apenas destravar o
+                        # veto de hash/id abaixo — sem este ramo um UUID colado a `x-api-key`
+                        # nunca sairia do gate de entropia, com ou sem contexto.
+                        if not (
+                            looks_like_secret_token(secret)
+                            or (hash_ou_id and contexto_credencial_forte)
+                        ):
+                            continue
+                        if tem_letra_nao_ascii(secret):
                             continue
                         if segmento_e_recurso_publico(raw_line, secret, start, fim):
                             continue  # slug de CDN/asset, ARN/ssoins, WWID de /dev/mapper
-                        if is_probable_hash_or_id(secret):
-                            continue  # UUID / SHA-1 de commit / pin não são segredos
+                        if hash_ou_id and not contexto_credencial_forte:
+                            continue  # UUID / SHA-1 de commit / pin não são segredos — SALVO
+                            # se a linha também carrega keyword forte de credencial: aí o
+                            # contexto sobrepõe a forma e o token sobrevive (FN AUD0908).
                         if start > 0 and raw_line[start - 1] == "@":
                             continue  # 'action@sha' / 'image@digest' são pins, não segredos
                         if (
