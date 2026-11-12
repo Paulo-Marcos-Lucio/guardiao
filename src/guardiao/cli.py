@@ -107,6 +107,7 @@ def _build_config(
     max_file_size: int = Config.max_file_size,
     max_line_length: int = Config.max_line_length,
     incluir_testes: bool = False,
+    incluir_docs: bool = False,
 ) -> Config:
     _validar_selecao(only, skip, skip_category)
     return Config(
@@ -118,6 +119,7 @@ def _build_config(
         max_file_size=max_file_size,
         max_line_length=max_line_length,
         demote_tests=not incluir_testes,
+        demote_docs=not incluir_docs,
     )
 
 
@@ -185,6 +187,13 @@ def scan(
         help="Não rebaixa a severidade de achados heurísticos em arquivos de teste "
         "(por padrão, tests/, test_*.py, conftest.py etc. são rebaixados — sinal suave).",
     ),
+    incluir_docs: bool = typer.Option(
+        False,
+        "--incluir-docs",
+        help="Não rebaixa a severidade de achados heurísticos em arquivo de documentação/"
+        "prosa (por padrão, docs/, *.rst, *.adoc, *.md são rebaixados — sinal suave, "
+        "nunca suprime).",
+    ),
     scan_lockfiles: bool = typer.Option(
         False,
         "--scan-lockfiles",
@@ -214,6 +223,7 @@ def scan(
         max_file_size,
         max_line_length,
         incluir_testes,
+        incluir_docs,
     )
     scanner = Scanner(config=config)
 

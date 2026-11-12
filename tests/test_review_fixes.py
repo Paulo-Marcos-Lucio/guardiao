@@ -366,6 +366,30 @@ def test_arquivo_de_teste_rebaixa_heuristica_mas_nao_suprime() -> None:
     assert sem_rebaixe.severity is Severity.MEDIUM
 
 
+# ALTO — documentação/prosa é o MESMO sinal suave (rebaixa), nunca skip: um segredo de
+# prod colado num .md continua sendo achado.
+def test_arquivo_de_doc_rebaixa_heuristica_mas_nao_suprime() -> None:
+    line = 'api_key = "S3cr3tP4ssw0rdX9zQvB"'
+    prod = next(f for f in Scanner().scan_text("app/config.py", line))
+    doc = next(f for f in Scanner().scan_text("docs/guia.md", line))
+    assert prod.severity is Severity.MEDIUM
+    assert doc.severity is Severity.LOW  # rebaixado, mas AINDA reportado
+    # extensão de prosa conta mesmo fora de docs/ (README/CONTRIBUTING na raiz)
+    prosa_na_raiz = next(f for f in Scanner().scan_text("CONTRIBUTING.rst", line))
+    assert prosa_na_raiz.severity is Severity.LOW
+    # --incluir-docs desliga o rebaixe
+    sem_rebaixe = next(
+        f for f in Scanner(config=Config(demote_docs=False)).scan_text("docs/guia.md", line)
+    )
+    assert sem_rebaixe.severity is Severity.MEDIUM
+    # regra de FORMATO (github-token) não está em _DEMOTABLE_HEURISTICAS — doc não a rebaixa
+    gh_line = 'GH = "ghp_9zQ2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwX"'
+    gh_doc = next(
+        f for f in Scanner().scan_text("docs/guia.md", gh_line) if f.rule_id == "github-token"
+    )
+    assert gh_doc.severity is Severity.HIGH
+
+
 # MED — 'api' isolado casava DENTRO de 'FastAPI' e ligava a regra de entropia.
 def test_api_dentro_de_fastapi_nao_liga_entropia() -> None:
     linha = "# stack: SQLAlchemy/Redis/FastAPI roda tudo integrado sem problema nenhum"
