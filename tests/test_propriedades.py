@@ -163,3 +163,34 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=100)
+@given(
+    nome=st.sampled_from(["guia", "README", "manual", "notas", "CONTRIBUTING", "tutorial"]),
+    ext=st.sampled_from([".md", ".rst", ".adoc"]),
+    em_pasta_docs=st.booleans(),
+)
+def test_doc_ou_prosa_rebaixa_heuristica_mas_nunca_suprime(
+    nome: str, ext: str, em_pasta_docs: bool
+) -> None:
+    """INVARIANTE 7: QUALQUER caminho de documentação/prosa (pasta `docs/` OU extensão
+    `.md`/`.rst`/`.adoc`, em qualquer combinação) rebaixa um achado heurístico em
+    exatamente 1 degrau de severidade — nunca o suprime.
+
+    Classe do item da auditoria FN/FP 2026-09-08: um segredo de prod colado num arquivo
+    de doc (ex.: `secret_key: ...` num `.rst` de exemplo) não podia desaparecer, só
+    valer menos — análogo ao rebaixamento já existente para arquivo de teste.
+    """
+    path = f"docs/{nome}{ext}" if em_pasta_docs else f"{nome}{ext}"
+    line = 'api_key = "S3cr3tP4ssw0rdX9zQvB"'
+    achados_doc = [a for a in Scanner().scan_text(path, line) if a.rule_id == "generic-assignment"]
+    achados_prod = [
+        a for a in Scanner().scan_text("app/config.py", line) if a.rule_id == "generic-assignment"
+    ]
+    assert len(achados_doc) == 1, f"segredo em {path!r} não gerou achado (suprimido)"
+    assert len(achados_prod) == 1
+    assert achados_doc[0].severity.rank == achados_prod[0].severity.rank - 1, (
+        f"{path!r}: severidade {achados_doc[0].severity} não é 1 degrau abaixo de "
+        f"{achados_prod[0].severity}"
+    )

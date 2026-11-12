@@ -34,6 +34,13 @@ _TEST_FILE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Sinais de que um arquivo é de DOCUMENTAÇÃO/prosa — mesma doutrina do sinal de teste:
+# SUAVE (rebaixa, nunca suprime). Um segredo de prod colado num `.md` continua achado,
+# só com severidade menor — a pasta `docs/` e a extensão de prosa (`.rst`/`.adoc`/`.md`)
+# são sinal de exemplo/tutorial, não prova de que o valor é inofensivo.
+_DOC_DIR_SEGMENTS: frozenset[str] = frozenset({"docs"})
+_DOC_FILE_EXTS: frozenset[str] = frozenset({".rst", ".adoc", ".md"})
+
 DEFAULT_EXCLUDE_DIRS: frozenset[str] = frozenset(
     {
         ".git",
@@ -136,6 +143,9 @@ class Config:
     #: Rebaixa a severidade de achados HEURÍSTICOS (generic-assignment, high-entropy)
     #: em arquivos de teste — sinal suave, não skip. `--incluir-testes` desliga.
     demote_tests: bool = True
+    #: Mesmo rebaixamento, para arquivo de documentação/prosa (`docs/`, `.rst`/`.adoc`/
+    #: `.md`) — sinal suave, não skip. `--incluir-docs` desliga.
+    demote_docs: bool = True
 
     def is_test_path(self, path: str) -> bool:
         """Heurística: este caminho é de um arquivo de teste?"""
@@ -143,6 +153,13 @@ class Config:
         if any(seg.lower() in _TEST_DIR_SEGMENTS for seg in pure.parts):
             return True
         return bool(_TEST_FILE_RE.match(pure.name))
+
+    def is_doc_path(self, path: str) -> bool:
+        """Heurística: este caminho é de documentação/prosa (`docs/`, `.rst`/`.adoc`/`.md`)?"""
+        pure = PurePath(str(path).replace("\\", "/"))
+        if any(seg.lower() in _DOC_DIR_SEGMENTS for seg in pure.parts):
+            return True
+        return pure.suffix.lower() in _DOC_FILE_EXTS
 
     def is_noise_file(self, name: str) -> bool:
         """Lockfile/gerado/minificado — pulado por padrão (ruído de hashes)."""
