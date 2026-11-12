@@ -1203,6 +1203,11 @@ _BASIC_AUTH_PARTS = re.compile(
     re.IGNORECASE,
 )
 
+#: Host que não é um domínio, e sim o rótulo literal do PAPEL na URL de doc/exemplo
+#: (`http://user:senha@host:5432/db`, `http://admin:senha@user/`) — mesma função do
+#: `example.com`, mas sem o TLD que o `_EXAMPLE_HOST` exige.
+_PLACEHOLDER_HOSTS = frozenset({"host", "user", "hostname"})
+
 
 def _basic_auth_url_e_vazamento(url: str) -> bool:
     """A URL Basic-Auth carrega credencial REAL, ou é fixture de parser de URL?
@@ -1211,9 +1216,10 @@ def _basic_auth_url_e_vazamento(url: str) -> bool:
     URLs sintaticamente válidas mas absurdas — host vazio (`@/`), host de 1 caractere
     (`@d:2/`), senha de teste URL-encoded. A regex de `basic-auth-url` casava todas. O
     discriminante de classe é o HOST: um vazamento real tem host com forma de domínio/
-    hostname (≥4 caracteres); um fixture de parser tem host degenerado. Sob host degenerado,
-    só é vazamento se a senha for de ALTA ENTROPIA (uma senha real embutida contra um host
-    curto interno continua pega); caso contrário, é dado de teste.
+    hostname (≥4 caracteres, não um rótulo de papel como `host`/`user`); um fixture de
+    parser ou exemplo de doc tem host degenerado. Sob host degenerado, só é vazamento se
+    a senha for de ALTA ENTROPIA (uma senha real embutida contra um host curto interno
+    continua pega); caso contrário, é dado de teste.
     """
     m = _BASIC_AUTH_PARTS.match(url)
     if m is None:  # não bate o parser fino: mantém o veredito da regex principal
@@ -1222,9 +1228,11 @@ def _basic_auth_url_e_vazamento(url: str) -> bool:
         return False  # já coberto (example.com, user:pass, template) — não duplica
     pw = m.group("pw")
     hostname = m.group("host").split(":")[0]
-    if len(hostname) < 4:
-        # host degenerado (vazio, 1-3 chars: fixture de parser): só vaza se a senha for
-        # de alta entropia (uma senha real contra host interno curto continua pega).
+    host_degenerado = len(hostname) < 4 or hostname.lower() in _PLACEHOLDER_HOSTS
+    if host_degenerado:
+        # host degenerado (vazio, 1-3 chars, ou rótulo literal `host`/`user` de doc): só
+        # vaza se a senha for de alta entropia (uma senha real contra host interno curto
+        # continua pega).
         return is_high_entropy(pw, min_length=12)
     # host com forma de domínio: ainda exige que a SENHA pareça real. `a%20secret`
     # (a-space-secret, URL-encoded) contra `müller.de` é exemplo de parser de URL, não
@@ -1238,6 +1246,11 @@ def _pw_looks_real(pw: str) -> bool:
     Usado para decidir se uma URL contra host local/privado ainda é vazamento.
     """
     if pw in _PLACEHOLDER_PWS or set(pw) <= {"x"}:
+        return False
+    if _predominantemente_url_encoded(pw):
+        # `%F0%9F%92%A9` (emoji URL-encoded de fixture): o `%` das sequências `%XX` é
+        # dado de URL, não a 3ª classe de caractere que validaria a senha — sem este
+        # guard, `_num_char_classes` conta o `%` como símbolo e aprova a senha sozinho.
         return False
     if any(w in pw for w in ("changeme", "example", "pass", "secret")):
         return False

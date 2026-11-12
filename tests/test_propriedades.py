@@ -163,3 +163,68 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+def _achados_basic_auth(url: str) -> list:
+    return [
+        a
+        for a in Scanner().scan_text("teste.py", f'url = "{url}"\n')
+        if a.rule_id == "basic-auth-url"
+    ]
+
+
+@settings(max_examples=200)
+@given(
+    esquema=st.sampled_from(["http", "https"]),
+    host=st.sampled_from(["host", "user", "hostname", "Host", "USER", "mueller.de", "dbhost"]),
+    bytes_pw=st.lists(st.integers(min_value=0, max_value=255), min_size=4, max_size=16),
+)
+def test_senha_predominantemente_url_encoded_nao_e_vazamento(
+    esquema: str, host: str, bytes_pw: list[int]
+) -> None:
+    """INVARIANTE 7a: senha PREDOMINANTEMENTE `%XX` (dado de URL/fixture, ex. emoji
+    URL-encoded) nunca vira achado `basic-auth-url`, nem contra host com forma de
+    domínio — o `%` de percent-encoding não pode contar como a 3ª classe de caractere
+    que, por si só, validaria a senha como real.
+
+    Classe do FP de campo (WHATWG `tests/models/whatwg.json`): `%F0%9F%92%A9` (emoji
+    URL-encoded) contra `müller.de` tinha 3 classes de caractere (maiúscula/dígito/`%`)
+    e virava achado sem a senha carregar segredo nenhum.
+    """
+    pw = "".join(f"%{b:02X}" for b in bytes_pw)
+    url = f"{esquema}://user:{pw}@{host}/path?q=1"
+    assert _achados_basic_auth(url) == [], f"URL com senha URL-encoded {url!r} virou achado"
+
+
+@settings(max_examples=200)
+@given(
+    esquema=st.sampled_from(["http", "https"]),
+    host=st.sampled_from(["host", "user", "hostname", "Host", "USER"]),
+    pw=st.sampled_from(["pass", "a secret-ish pwd", "x" * 20, "foo.bar-baz_qux", "%41%42%43"]),
+)
+def test_host_rotulo_de_papel_e_placeholder_textual(esquema: str, host: str, pw: str) -> None:
+    """INVARIANTE 7b: host que é o RÓTULO literal do papel na URL de doc (`host`, `user`,
+    `hostname`) — não um domínio real — nunca sustenta `basic-auth-url` sozinho: exige
+    senha de ALTA ENTROPIA, igual a um host degenerado.
+
+    Classe do FP de campo: `http://user:pass@host:5432/db`, exemplo canônico de doc de
+    conexão de banco, tinha host de 4+ chars e caía no ramo fraco (`_pw_looks_real`,
+    3 classes de caractere bastam) em vez do ramo forte de alta entropia.
+    """
+    url = f"{esquema}://admin:{pw}@{host}:5432/db"
+    assert _achados_basic_auth(url) == [], f"URL com host-placeholder {url!r} virou achado"
+
+
+@settings(max_examples=50)
+@given(
+    host=st.sampled_from(["host", "user", "hostname", "mueller.de", "db.prod.internal"]),
+)
+def test_segredo_real_contra_host_rotulo_ou_dominio_ainda_dispara(host: str) -> None:
+    """CONTRAPROVA de 7a/7b: um segredo real de alta entropia continua detectado contra
+    QUALQUER host — rótulo de papel ou domínio real. Os dois guards novos (senha
+    URL-encoded, host-rótulo) não podem cegar um vazamento de verdade.
+    """
+    pw = "Xk9E7pQ2mZ4tR8sV1nW6bL3jC5xN0oDM1"
+    url = f"https://admin:{pw}@{host}:5432/db"
+    achados = _achados_basic_auth(url)
+    assert achados != [], f"segredo real {url!r} não virou achado basic-auth-url"
