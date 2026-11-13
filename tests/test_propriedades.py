@@ -16,8 +16,9 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
-from guardiao.rules.definitions import looks_like_secret_token
+from guardiao.rules.definitions import _WEAK_EXAMPLE_VALUES, looks_like_secret_token
 from guardiao.sources.files import decode_text_bytes
+from tests.conftest import CONNSTRING_SECRET, GENERIC_SECRET
 
 # Palavras legíveis (com vogal) para montar identificadores de código sintéticos.
 _PALAVRAS = [
@@ -163,3 +164,39 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=200)
+@given(
+    chave=st.sampled_from(["password", "secret", "token", "api-key", "senha"]),
+    valor_fraco=st.sampled_from(sorted(_WEAK_EXAMPLE_VALUES)),
+)
+def test_secret_k8s_base64_de_valor_fraco_nunca_vira_achado(chave: str, valor_fraco: str) -> None:
+    """INVARIANTE 7: `data:`/`stringData:` de Secret k8s (ou qualquer YAML de config) que
+    guarda um valor de exemplo/dicionário em base64 nunca vira achado.
+
+    Classe do FP (auditoria 2026-09-08): `cGFzc3dvcmQ=` (base64 de `password`) tem 3+
+    classes de caractere e nenhuma substring de ``PLACEHOLDER_SUBSTRINGS``/
+    ``_WEAK_EXAMPLE_VALUES`` bate o valor CODIFICADO — o filtro sempre operou sobre o
+    valor cru, nunca sobre o que ele representa decodificado.
+    """
+    b64 = base64.b64encode(valor_fraco.encode()).decode()
+    texto = f"apiVersion: v1\nkind: Secret\ndata:\n  {chave}: {b64}\n"
+    achados = list(Scanner().scan_text("secret.yaml", texto))
+    assert achados == [], f"base64({valor_fraco!r}) = {b64!r} virou achado: {achados!r}"
+
+
+@settings(max_examples=100)
+@given(
+    chave=st.sampled_from(["password", "secret", "token", "api-key"]),
+    segredo_real=st.sampled_from([GENERIC_SECRET, CONNSTRING_SECRET]),
+)
+def test_secret_k8s_base64_de_segredo_real_continua_achado(chave: str, segredo_real: str) -> None:
+    """CONTRAPROVA da INVARIANTE 7: decodificar base64 antes de filtrar não pode abrir
+    falso-negativo. Um segredo REAL (sintético, mas de aparência real — mistura de classes
+    de caractere), codificado do mesmo jeito que o placeholder, continua gerando achado —
+    só a palavra fraca/dicionário por inteiro é rebaixada, nunca um valor real."""
+    b64 = base64.b64encode(segredo_real.encode()).decode()
+    texto = f"apiVersion: v1\nkind: Secret\ndata:\n  {chave}: {b64}\n"
+    achados = [a for a in Scanner().scan_text("secret.yaml", texto) if a.secret == b64]
+    assert achados != [], f"base64 de segredo real {segredo_real!r} ({b64!r}) deixou de ser achado"
