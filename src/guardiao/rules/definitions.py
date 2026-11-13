@@ -7,6 +7,7 @@ começa por **rotacionar/revogar**, não apenas remover do histórico.
 
 from __future__ import annotations
 
+import base64
 import re
 from collections import Counter
 from urllib.parse import urlsplit
@@ -878,11 +879,45 @@ def _is_example_url_cred(secret: str) -> bool:
     return user_ph and pw_ph  # user E senha placeholder (não suprime vazamento real)
 
 
+#: Base64 padrão (RFC 4648), comprimento múltiplo de 4 e preenchimento `=` correto —
+#: a FORMA que `data:`/`stringData:` de um Secret k8s exige para cada valor.
+_BASE64_PADRAO = re.compile(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
+
+
+def _base64_texto_decodificado(secret: str) -> str | None:
+    """Se `secret` for base64 válido de comprimento moderado, devolve o TEXTO que ele
+    codifica — ou ``None`` se não for base64, ou se decodificar para bytes que não são
+    texto UTF-8 imprimível (blob binário real, que a classe nunca deve suprimir).
+
+    CAUSA-RAIZ: `data:`/`stringData:` de um Secret k8s (e qualquer config equivalente)
+    guarda o valor em base64. O filtro de placeholder/dicionário (`_WEAK_EXAMPLE_VALUES`,
+    `PLACEHOLDER_SUBSTRINGS`) sempre comparou contra o valor CRU da linha — e
+    ``base64("password")`` é ``cGFzc3dvcmQ=``, que não bate nenhum marcador por não ser,
+    ele mesmo, a palavra placeholder. Decodificar primeiro é o que permite reaplicar o
+    MESMO filtro sobre o que o valor de fato representa.
+    """
+    if len(secret) < 4 or len(secret) % 4 != 0 or not _BASE64_PADRAO.match(secret):
+        return None
+    try:
+        decoded_bytes = base64.b64decode(secret, validate=True)
+    except ValueError:
+        return None
+    try:
+        decoded = decoded_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if not decoded or not decoded.isprintable():
+        return None  # blob binário de verdade: nunca suprime segredo real
+    return decoded
+
+
 def is_obvious_fake(secret: str) -> bool:
     """Descarte que vale para **todas** as regras: valor de exemplo por inteiro.
 
     Só casa o valor COMPLETO (ou a estrutura completa, no caso de URL/template), então
-    nunca engole um segredo real por coincidência de substring.
+    nunca engole um segredo real por coincidência de substring. Isso vale também para o
+    texto que o valor esconde quando é base64 de um Secret k8s/config: só o texto
+    decodificado INTEIRO batendo um valor-fraco canônico conta, nunca substring solta.
     """
     if secret in KNOWN_FAKE_SECRETS:
         return True
@@ -891,6 +926,9 @@ def is_obvious_fake(secret: str) -> bool:
     if _REPEATED.match(secret):
         return True
     if _TEMPLATE.search(secret):
+        return True
+    decodificado = _base64_texto_decodificado(secret)
+    if decodificado is not None and decodificado.lower() in _WEAK_EXAMPLE_VALUES:
         return True
     return _is_example_url_cred(secret)
 
@@ -922,6 +960,12 @@ def placeholder_domina(secret: str) -> bool:
     Propriedade: para qualquer segredo real ``S`` (alta entropia) e qualquer marcador
     ``m``, ``S`` com ``m`` embutido continua NÃO sendo placeholder — logo continua
     disparando se ``S`` sozinho dispara.
+
+    Se ``secret`` for base64 válido (`data:`/`stringData:` de Secret k8s, ou qualquer
+    config que guarde o valor codificado), a mesma regra de domínio é reaplicada sobre
+    o TEXTO DECODIFICADO: um blob aleatório real decodifica para bytes sem forma de
+    texto (ou para texto sem marcador dominante) e continua HIGH; só a palavra
+    fraca/dicionário por inteiro, ou dominada por marcador, é rebaixada.
     """
     if is_obvious_fake(secret):
         return True
@@ -929,7 +973,18 @@ def placeholder_domina(secret: str) -> bool:
         return False  # segredo aleatório real: marcador embutido não o torna exemplo
     lowered = secret.lower()
     maior = max((len(sub) for sub in PLACEHOLDER_SUBSTRINGS if sub in lowered), default=0)
-    return maior * 2 >= len(secret)  # o marcador cobre metade+ do valor: domina
+    if maior * 2 >= len(secret):
+        return True  # o marcador cobre metade+ do valor: domina
+    decodificado = _base64_texto_decodificado(secret)
+    if decodificado is None:
+        return False
+    if decodificado.lower() in _WEAK_EXAMPLE_VALUES:
+        return True
+    decodificado_lower = decodificado.lower()
+    maior_decodificado = max(
+        (len(sub) for sub in PLACEHOLDER_SUBSTRINGS if sub in decodificado_lower), default=0
+    )
+    return maior_decodificado * 2 >= len(decodificado)
 
 
 def is_probable_hash_or_id(token: str) -> bool:
