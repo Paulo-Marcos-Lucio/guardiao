@@ -18,6 +18,22 @@ from hypothesis import strategies as st
 from guardiao.core.engine import Scanner
 from guardiao.rules.definitions import looks_like_secret_token
 from guardiao.sources.files import decode_text_bytes
+from tests.conftest import CONNSTRING_SECRET, GENERIC_SECRET
+
+# Palavras que compõem uma expressão/cadeia de métodos Ruby plausível dentro de `#{...}`.
+_PALAVRAS_RUBY = [
+    "Rails",
+    "application",
+    "secrets",
+    "credentials",
+    "config",
+    "fetch",
+    "dig",
+    "self",
+    "object",
+    "api_key",
+    "token",
+]
 
 # Palavras legíveis (com vogal) para montar identificadores de código sintéticos.
 _PALAVRAS = [
@@ -163,3 +179,41 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=200)
+@given(
+    chave=st.sampled_from(["password", "api_key", "secret", "token", "senha"]),
+    partes=st.lists(st.sampled_from(_PALAVRAS_RUBY), min_size=1, max_size=4),
+    com_chamada=st.booleans(),
+)
+def test_interpolacao_ruby_nunca_vira_achado(
+    chave: str, partes: list[str], com_chamada: bool
+) -> None:
+    """INVARIANTE 7: uma interpolação Ruby `#{...}` (expressão ou cadeia de métodos) é a
+    RECEITA do segredo — leitura em runtime — nunca o segredo em si, exatamente como
+    `${...}` e `{{ }}` já são tratados.
+
+    Classe do FP (auditoria 2026-09-08): `api_key = "#{Rails.application.secrets.api_key}"`
+    virava achado `generic-assignment` porque nenhum filtro de template cobria `#{...}`.
+    """
+    corpo = ".".join(partes)
+    if com_chamada:
+        corpo += ".call"
+    valor = "#{" + corpo + "}"
+    texto = f'{chave} = "{valor}"\n'
+    achados = list(Scanner().scan_text("config.rb", texto))
+    assert achados == [], f"interpolação Ruby {valor!r} virou achado: {achados!r}"
+
+
+@settings(max_examples=100)
+@given(
+    chave=st.sampled_from(["password", "api_key", "secret", "token"]),
+    segredo_real=st.sampled_from([GENERIC_SECRET, CONNSTRING_SECRET]),
+)
+def test_interpolacao_ruby_nao_cega_segredo_real(chave: str, segredo_real: str) -> None:
+    """CONTRAPROVA da INVARIANTE 7: reconhecer `#{...}` como template não pode abrir
+    falso-negativo — um segredo real (sintético, mas de aparência real), sem interpolação,
+    continua gerando achado no mesmo tipo de linha."""
+    achados = {a.rule_id for a in Scanner().scan_text("config.rb", f'{chave} = "{segredo_real}"\n')}
+    assert "generic-assignment" in achados, f"segredo real {segredo_real!r} deixou de ser achado"

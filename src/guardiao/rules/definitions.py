@@ -807,9 +807,9 @@ KNOWN_FAKE_SECRETS: frozenset[str] = frozenset(
 _REPEATED = re.compile(r"^(.)\1{7,}$")
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _GIT_SHA = re.compile(r"^[0-9a-fA-F]{40}$")  # SHA-1 de commit / action pinada
-# Interpolação de template (`${VAR}`, `{{ var }}`, `{NOME_DA_VAR}`) — é a receita do
-# segredo, não o segredo.
-_TEMPLATE = re.compile(r"\$\{|\{\{|\{[A-Z][A-Z0-9_]{2,}\}|<[A-Za-z][A-Za-z0-9_-]*>")
+# Interpolação de template (`${VAR}`, `{{ var }}`, `{NOME_DA_VAR}`, `#{expr}` do Ruby)
+# — é a receita do segredo (ou a leitura em runtime), não o segredo.
+_TEMPLATE = re.compile(r"\$\{|\{\{|\{[A-Z][A-Z0-9_]{2,}\}|<[A-Za-z][A-Za-z0-9_-]*>|#\{[^}]+\}")
 
 # Credencial embutida em URL de EXEMPLO/teste (docs, fixtures de parser) — não é vazamento real.
 _URL_CRED = re.compile(
