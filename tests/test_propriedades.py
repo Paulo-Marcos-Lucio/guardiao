@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import base64
 
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from guardiao.core.engine import Scanner
@@ -163,3 +163,56 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+# --------------------------------------------------------------------------- #
+# INVARIANTE 7 (FN AUD0908-guardiao-fn-token-hash-shape-bare): `is_probable_hash_or_id`
+# não pode ser filtro ABSOLUTO na trilha de entropia. Para QUALQUER 40-hex/UUID — não só
+# o exemplo isolado do relatório — adjacente a uma keyword FORTE de credencial na mesma
+# linha, o contexto sobrepõe a forma e o token sobrevive; sem essa keyword, a forma de
+# hash/pin/UUID continua suprimida.
+# --------------------------------------------------------------------------- #
+
+_HEX = "0123456789abcdef"
+
+
+@st.composite
+def _sha1_like(draw: st.DrawFn) -> str:
+    return "".join(draw(st.lists(st.sampled_from(_HEX), min_size=40, max_size=40)))
+
+
+@st.composite
+def _uuid_like(draw: st.DrawFn) -> str:
+    grupos = (8, 4, 4, 4, 12)
+    partes = [
+        "".join(draw(st.lists(st.sampled_from(_HEX), min_size=n, max_size=n))) for n in grupos
+    ]
+    return "-".join(partes)
+
+
+_HASH_OU_ID = st.one_of(_sha1_like(), _uuid_like())
+_PREFIXO_FORTE = st.sampled_from(
+    ["Authorization: Bearer", "token:", "auth_token:", "apikey:", "x-api-key:", "x-api-token:"]
+)
+_PREFIXO_GENERICO = st.sampled_from(["api_key:", "credential_id:", "cache_key:", "resource_id:"])
+
+
+@settings(max_examples=200)
+@given(valor=_HASH_OU_ID, prefixo=_PREFIXO_FORTE)
+def test_keyword_forte_sempre_sobrepoe_forma_de_hash_ou_uuid(valor: str, prefixo: str) -> None:
+    # Diversidade mínima: um valor com um único caractere repetido (`000...0`) é
+    # placeholder óbvio (`is_obvious_fake`/`_REPEATED`) — guarda LEGÍTIMA e anterior a
+    # esta, fora do escopo da invariante. A propriedade é sobre forma de hash/UUID real.
+    assume(len(set(valor.replace("-", ""))) >= 4)
+    achados = {a.rule_id for a in Scanner().scan_text("teste.py", f"{prefixo} {valor}\n")}
+    assert "high-entropy-string" in achados, f"{prefixo} {valor!r} não sobreviveu"
+
+
+@settings(max_examples=200)
+@given(valor=_HASH_OU_ID, prefixo=_PREFIXO_GENERICO)
+def test_keyword_generica_nao_salva_forma_de_hash_ou_uuid(valor: str, prefixo: str) -> None:
+    """Contraprova: contexto GENÉRICO (sem ser a keyword forte) não basta — a forma de
+    hash/UUID continua suprimida, como pin/commit/UUID de recurso."""
+    assume(len(set(valor.replace("-", ""))) >= 4)
+    achados = {a.rule_id for a in Scanner().scan_text("teste.py", f"{prefixo} {valor}\n")}
+    assert "high-entropy-string" not in achados, f"{prefixo} {valor!r} não deveria sobreviver"

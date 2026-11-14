@@ -107,6 +107,21 @@ PUBLIC_KEY_CONTEXT: tuple[str, ...] = (
     "dkim",
 )
 
+# Keyword FORTE de credencial (FN AUD0908-guardiao-fn-token-hash-shape-bare):
+# `is_probable_hash_or_id` suprime QUALQUER 40-hex/UUID por estrutura, mas um
+# `Authorization: Bearer <40-hex>` ou um `x-api-key: <uuid>` é credencial real que só
+# por coincidência tem a forma de um SHA-1 de commit ou de um UUID de recurso. Aqui o
+# CONTEXTO sobrepõe a FORMA — deliberadamente mais estreito que `SECRET_CONTEXT`
+# (sem `key`/`secret`/`apikey` com `_`/`-`): um `api_key:`/`cache_key:` genérico
+# continua sendo hash/pin suprimido (é o caso comum de SHA de commit em metadado), só
+# o vocabulário de header/token de autenticação é forte o bastante para virar o filtro.
+STRONG_CREDENTIAL_CONTEXT: tuple[str, ...] = (
+    "authorization",
+    "bearer",
+    "token",
+    "apikey",
+)
+
 
 # Hash de senha em formato crypt(3)/PHC (`$2b$…` bcrypt, `$argon2id$…`, `$6$…` sha512-crypt,
 # `pbkdf2_sha256$…` Django, `sha256$…`): é o HASH já derivado, não a senha em claro. Guardião
@@ -1165,11 +1180,19 @@ def looks_like_secret_token(token: str, *, min_length: int = MIN_SECRET_LEN) -> 
     """Um token isolado (segmento de path, cadeia solta) parece gerado aleatoriamente?
 
     Multi-sinal: entropia alta por-alfabeto **OU** impronunciabilidade (corrida longa
-    de consoantes) numa cadeia longa. UUID/SHA-1 são estrutura de hash, não segredo.
+    de consoantes) numa cadeia longa.
+
+    Esta função é CONTEXT-FREE de propósito — não vê a linha nem o que está adjacente
+    ao token. Por isso NÃO decide aqui que UUID/SHA-1 (estrutura de hash) não é
+    segredo: um `is_probable_hash_or_id` embutido short-circuitava para `False`
+    SEMPRE, inclusive quando o token está colado a `Authorization: Bearer`/`x-api-key`
+    — contexto que faz dele uma credencial real, não um pin/commit (FN
+    AUD0908-guardiao-fn-token-hash-shape-bare). Quem decide isso é o único chamador em
+    produção (`core/engine.py`), que TEM a linha e pode deixar o contexto sobrepor a
+    forma; aqui a forma de hash/UUID simplesmente não impede a entropia/impronunciabilidade
+    de classificar o token como aleatório.
     """
     if len(token) < min_length:
-        return False
-    if is_probable_hash_or_id(token):
         return False
     if _parece_identificador_de_codigo(token):
         return False  # identificador de código (`cert_encrypted_private_key_file`) não é segredo

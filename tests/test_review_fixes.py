@@ -136,6 +136,23 @@ def test_guarda_de_hash_e_de_pin_sao_independentes() -> None:
     )
 
 
+def test_keyword_forte_de_credencial_sobrepoe_forma_de_hash_ou_uuid() -> None:
+    """FN AUD0908-guardiao-fn-token-hash-shape-bare: `is_probable_hash_or_id` suprimia
+    QUALQUER 40-hex/UUID por estrutura, mesmo adjacente a 'Authorization: Bearer' ou
+    'x-api-key' — contexto de credencial real engolido por forma de hash/pin."""
+    sha1 = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+    uuid = "550e8400-e29b-41d4-a716-446655440000"
+    assert "high-entropy-string" in _ids(f"Authorization: Bearer {sha1}")
+    assert "high-entropy-string" in _ids(f"token: {sha1}")
+    assert "high-entropy-string" in _ids(f"x-api-key: {uuid}")
+    assert "high-entropy-string" in _ids(f"x-api-token: {uuid}")
+    # controle: SEM keyword forte, a mesma forma continua suprimida (pin/commit/UUID
+    # de recurso) — 'api_key' (com '_') e 'credential_id' são contexto genérico de
+    # SECRET_CONTEXT, não a keyword forte que sobrepõe a forma de hash/UUID.
+    assert "high-entropy-string" not in _ids(f"api_key: {sha1}")
+    assert "high-entropy-string" not in _ids(f"credential_id: {uuid}")
+
+
 def test_entropy_requires_secret_context() -> None:
     val = "Xk9Q2mNpR7wLvB3cD5fG6hJ8kM0nT4uY1zAwBcDeF"
     assert "high-entropy-string" in _ids(f"token: {val}")  # perto de 'token' → dispara
