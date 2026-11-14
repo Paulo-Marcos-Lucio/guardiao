@@ -1,0 +1,200 @@
+[
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/models/test_url.py",
+    "linha": 181,
+    "regra": "basic-auth-url",
+    "veredito": "falso_positivo",
+    "motivo": "Caso de teste de parsing de URL com usuário:senha de exemplo com sequência percent-encoded (`username%40gmail.com:pa%20ssword`); valor de teste, não credencial real."
+  },
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/models/test_url.py",
+    "linha": 187,
+    "regra": "basic-auth-url",
+    "veredito": "falso_positivo",
+    "motivo": "Mesmo caso de teste de parsing de URL com usuário:senha de exemplo (`user%20name:p%40ssword`), caso irmão do da linha 181."
+  },
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/models/test_url.py",
+    "linha": 613,
+    "regra": "basic-auth-url",
+    "veredito": "falso_positivo",
+    "motivo": "Teste de `URL.copy_with()` com usuário/senha de exemplo (`tom@example.org` / `abc123@ %`) sobre `https://example.org`; não é credencial real."
+  },
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/models/whatwg.json",
+    "linha": 4054,
+    "regra": "basic-auth-url",
+    "veredito": "falso_positivo",
+    "motivo": "Caso de teste do WHATWG URL Living Standard (suíte de conformidade pública importada) com usuário:senha de exemplo em `example.com`."
+  },
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/client/test_auth.py",
+    "linha": 252,
+    "regra": "high-entropy-string",
+    "veredito": "falso_positivo",
+    "motivo": "Base64 de credencial de exemplo (`example-username:example-password`) usada numa asserção de teste de autenticação Basic."
+  },
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/models/whatwg.json",
+    "linha": 654,
+    "regra": "generic-assignment",
+    "veredito": "falso_positivo",
+    "motivo": "Mesma suíte de conformidade WHATWG URL Living Standard; campo `password` de exemplo (`foo(b%5Dc`) do caso de teste, não credencial real."
+  },
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/test_auth.py",
+    "linha": 174,
+    "regra": "high-entropy-string",
+    "veredito": "falso_positivo",
+    "motivo": "Nonce hexadecimal de exemplo (RFC 2617, Digest auth) numa asserção de teste — valor de fixture, não segredo."
+  },
+  {
+    "repo": "httpx",
+    "commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "arquivo": "tests/test_auth.py",
+    "linha": 178,
+    "regra": "high-entropy-string",
+    "veredito": "falso_positivo",
+    "motivo": "Valor `opaque` hexadecimal de exemplo na mesma asserção de Digest auth (RFC 2617) da linha 174."
+  },
+  {
+    "repo": "requests",
+    "commit": "1f6589ec3a1ee910f9a65cc3ceac60b26677bc0e",
+    "arquivo": "tests/certs/expired/ca/ca-private.key",
+    "linha": 1,
+    "regra": "private-key",
+    "veredito": "falso_positivo",
+    "motivo": "Chave privada de teste gerada para a suíte de certificados TLS do `requests` (par descartável, expirado de propósito, nunca usado fora do processo de teste)."
+  },
+  {
+    "repo": "requests",
+    "commit": "1f6589ec3a1ee910f9a65cc3ceac60b26677bc0e",
+    "arquivo": "tests/certs/expired/server/server.key",
+    "linha": 1,
+    "regra": "private-key",
+    "veredito": "falso_positivo",
+    "motivo": "Chave privada de teste do servidor TLS expirado da mesma suíte de certificados do `requests`."
+  },
+  {
+    "repo": "requests",
+    "commit": "1f6589ec3a1ee910f9a65cc3ceac60b26677bc0e",
+    "arquivo": "tests/certs/mtls/client/ca/ca-private.key",
+    "linha": 1,
+    "regra": "private-key",
+    "veredito": "falso_positivo",
+    "motivo": "Chave privada de teste da CA usada na suíte de mTLS do `requests`; par descartável gerado para o teste."
+  },
+  {
+    "repo": "requests",
+    "commit": "1f6589ec3a1ee910f9a65cc3ceac60b26677bc0e",
+    "arquivo": "tests/certs/mtls/client/client.key",
+    "linha": 1,
+    "regra": "private-key",
+    "veredito": "falso_positivo",
+    "motivo": "Chave privada de teste do cliente mTLS da mesma suíte de certificados do `requests`."
+  },
+  {
+    "repo": "requests",
+    "commit": "1f6589ec3a1ee910f9a65cc3ceac60b26677bc0e",
+    "arquivo": "tests/certs/valid/ca/ca-private.key",
+    "linha": 1,
+    "regra": "private-key",
+    "veredito": "falso_positivo",
+    "motivo": "Chave privada de teste da CA válida da mesma suíte de certificados do `requests`."
+  },
+  {
+    "repo": "requests",
+    "commit": "1f6589ec3a1ee910f9a65cc3ceac60b26677bc0e",
+    "arquivo": "tests/certs/valid/server/server.key",
+    "linha": 1,
+    "regra": "private-key",
+    "veredito": "falso_positivo",
+    "motivo": "Chave privada de teste do servidor válido da mesma suíte de certificados do `requests`."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/config.rst",
+    "linha": 41,
+    "regra": "generic-assignment",
+    "veredito": "falso_positivo",
+    "motivo": "`SECRET_KEY` de exemplo no tutorial de configuração (placeholder didático, o mesmo valor reaparece em vários trechos deste arquivo)."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/config.rst",
+    "linha": 513,
+    "regra": "generic-assignment",
+    "veredito": "falso_positivo",
+    "motivo": "Mesmo placeholder didático de `SECRET_KEY` da linha 41, em outro exemplo do mesmo tutorial."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/config.rst",
+    "linha": 560,
+    "regra": "generic-assignment",
+    "veredito": "falso_positivo",
+    "motivo": "Exemplo de variável de ambiente `FLASK_SECRET_KEY` em bash com o mesmo valor placeholder didático do tutorial."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/config.rst",
+    "linha": 569,
+    "regra": "high-entropy-string",
+    "veredito": "falso_positivo",
+    "motivo": "Mesmo placeholder didático, no exemplo equivalente para fish shell."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/config.rst",
+    "linha": 578,
+    "regra": "generic-assignment",
+    "veredito": "falso_positivo",
+    "motivo": "Mesmo placeholder didático, no exemplo equivalente para cmd.exe."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/config.rst",
+    "linha": 587,
+    "regra": "generic-assignment",
+    "veredito": "falso_positivo",
+    "motivo": "Mesmo placeholder didático, no exemplo equivalente para PowerShell."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/config.rst",
+    "linha": 598,
+    "regra": "high-entropy-string",
+    "veredito": "falso_positivo",
+    "motivo": "Comentário mostrando o valor resultante do mesmo placeholder didático, dentro do tutorial de variável de ambiente."
+  },
+  {
+    "repo": "flask",
+    "commit": "6a2f545bfd8ed31e19066a299296917e034aca58",
+    "arquivo": "docs/tutorial/deploy.rst",
+    "linha": 73,
+    "regra": "generic-assignment",
+    "veredito": "falso_positivo",
+    "motivo": "Mesmo placeholder didático de `docs/config.rst` reaparece no tutorial de deploy do `flaskr`."
+  }
+]
