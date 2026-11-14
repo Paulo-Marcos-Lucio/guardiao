@@ -14,6 +14,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from guardiao.core import provenance
 from guardiao.core.engine import Scanner
@@ -113,13 +115,54 @@ def test_ruleset_hash_muda_quando_uma_regra_muda_de_severidade(
 
 def test_artifact_sha256_e_verificavel_pela_receita_documentada(planted_dir: Path) -> None:
     """Um hash que o destinatário não consegue recalcular é enfeite. A receita:
-    zere o campo, serialize canonicamente (sort_keys, separadores compactos, sem
-    escapar não-ASCII)."""
+    zere o campo de hash E ``summary.duration_s`` (telemetria de parede, AUD0908 —
+    ver docstring de ``provenance``), serialize canonicamente (sort_keys,
+    separadores compactos, sem escapar não-ASCII)."""
     doc = to_document(Scanner().scan_paths([planted_dir]))
     declarado = doc["artifact_sha256"]
-    del doc["artifact_sha256"]
-    canonico = json.dumps(doc, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    sem_hash = {k: v for k, v in doc.items() if k != "artifact_sha256"}
+    sem_hash["summary"] = {k: v for k, v in sem_hash["summary"].items() if k != "duration_s"}
+    canonico = json.dumps(sem_hash, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     assert hashlib.sha256(canonico.encode("utf-8")).hexdigest() == declarado
+
+
+def test_artifact_sha256_nao_depende_de_duration_s(planted_dir: Path) -> None:
+    """A regressão concreta do AUD0908: duas varreduras da mesma entrada tinham os
+    mesmos achados mas ``summary.duration_s`` quase sempre diferente (relógio
+    real), e isso bastava para mudar o ``artifact_sha256`` — um laudo
+    "reproduzível" que na prática nunca repetia. Roda o Scanner duas vezes de
+    verdade (sem mockar o relógio) para provar que a telemetria real diverge e,
+    mesmo assim, o selo é igual."""
+    doc1 = to_document(Scanner().scan_paths([planted_dir]))
+    doc2 = to_document(Scanner().scan_paths([planted_dir]))
+    assert doc1["findings"] == doc2["findings"]
+    assert doc1["artifact_sha256"] == doc2["artifact_sha256"]
+
+
+@given(
+    duration_1=st.floats(min_value=0, max_value=10_000, allow_nan=False, allow_infinity=False),
+    duration_2=st.floats(min_value=0, max_value=10_000, allow_nan=False, allow_infinity=False),
+)
+def test_artifact_sha256_invariante_de_classe_duration_s(
+    duration_1: float, duration_2: float
+) -> None:
+    """INVARIANTE DE CLASSE (AUD0908): ``seal(run1) == seal(run2)`` sempre que
+    ``findings(run1) == findings(run2)``, qualquer que seja ``summary.duration_s``.
+    Não depende de um Scanner real nem de fixture — varre o espaço de valores de
+    ponto flutuante do campo e trava a propriedade em si, não o exemplo que o
+    scan real produziu."""
+    base: dict[str, object] = {
+        "schema": "suite-appsec/1",
+        "tool": "guardiao",
+        "commit": None,
+        "commit_scope": "target",
+        "ruleset_hash": "sha256:" + "0" * 64,
+        "artifact_sha256": None,
+        "findings": [],
+        "summary": {"total": 0, "duration_s": duration_1},
+    }
+    outro = {**base, "summary": {"total": 0, "duration_s": duration_2}}
+    assert provenance.artifact_sha256(base) == provenance.artifact_sha256(outro)
 
 
 def test_paridade_da_receita_de_proveniencia(planted_dir: Path) -> None:
