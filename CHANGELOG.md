@@ -6,6 +6,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ## [Não lançado]
 
+### Adicionado — paralelismo em `scan_units` (G-03d)
+
+- **`--jobs`/`-j` na CLI, `jobs=` em `Scanner.scan_units`/`scan_paths`/`scan_git_history`.**
+  Acima de 200 unidades, divide a varredura em pedaços contíguos e distribui num
+  `ProcessPoolExecutor`; abaixo disso cai sempre para o laço sequencial de sempre — o
+  overhead de abrir processo supera o ganho numa varredura pequena. Cada processo
+  reconstrói seu próprio `Scanner` a partir da `Config` (serializável); o catálogo de
+  `Rule` nunca atravessa o `pickle` — um dos `validator` (CPF) é uma lambda, não-picklável.
+  **Medido** no `--git-history` completo do `psf/requests` (commit `3c7baaa`, 15.158
+  unidades): **116,2s → 34,9s com `--jobs 4` (3,34×)**, mesmas 12 fingerprints, mesma
+  ordem, mesmos `occurrences`/`commit_last` que `--jobs 1`.
+
 ### Adicionado — detecção (auditoria adversarial de 2026-09-08)
 
 Bateria empírica de causa-raiz, cada item travado por invariante property-based:

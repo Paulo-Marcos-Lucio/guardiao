@@ -15,7 +15,7 @@ import base64
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from guardiao.core.engine import Scanner
+from guardiao.core.engine import Scanner, _chunk_units
 from guardiao.rules.definitions import looks_like_secret_token
 from guardiao.sources.files import decode_text_bytes
 
@@ -163,3 +163,35 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=300)
+@given(
+    total=st.integers(min_value=0, max_value=500),
+    jobs=st.integers(min_value=1, max_value=16),
+)
+def test_chunk_units_particiona_sem_perder_nem_reordenar(total: int, jobs: int) -> None:
+    """INVARIANTE 7 (G-03d): `_chunk_units` é quem garante que varrer em paralelo não muda
+    O QUE é encontrado — só fatia o trabalho. Para qualquer `total` de unidades e qualquer
+    `jobs` pedido:
+
+    1. nenhuma unidade é perdida, duplicada ou reordenada (concatenar os pedaços devolve a
+       lista original, na mesma ordem);
+    2. nenhum pedaço fica vazio (um `ProcessPoolExecutor` com pedaço vazio é trabalho
+       desperdiçado: processo que sobe só para não fazer nada);
+    3. o número de pedaços nunca passa de `min(jobs, total)` — pedir `jobs=16` para 3
+       unidades não abre 16 processos para 3 unidades.
+    """
+    unidades = [(f"f{i}.py", f"linha {i}", None) for i in range(total)]
+    pedacos = _chunk_units(unidades, jobs)
+
+    reconstituido: list[tuple[str, str, None]] = []
+    for pedaco in pedacos:
+        assert pedaco, "pedaço vazio produzido por _chunk_units"
+        reconstituido.extend(pedaco)
+    assert reconstituido == unidades
+
+    if total == 0:
+        assert pedacos == []
+    else:
+        assert len(pedacos) == min(jobs, total)

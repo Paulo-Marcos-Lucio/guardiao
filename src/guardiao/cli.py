@@ -202,6 +202,14 @@ def scan(
     skip_category: list[str] = typer.Option(
         [], "--skip-category", help="Pula categorias inteiras (ex.: pii)."
     ),
+    jobs: int = typer.Option(
+        1,
+        "--jobs",
+        "-j",
+        min=1,
+        help="Processos paralelos na varredura (ProcessPoolExecutor). Sem efeito "
+        "abaixo de 200 unidades — o overhead de abrir processo supera o ganho.",
+    ),
 ) -> None:
     """Varre um projeto em busca de segredos."""
     targets = path or [Path(".")]
@@ -219,12 +227,14 @@ def scan(
 
     if git_history:
         try:
-            result = scanner.scan_git_history(targets[0], permitir_shallow=permitir_shallow)
+            result = scanner.scan_git_history(
+                targets[0], permitir_shallow=permitir_shallow, jobs=jobs
+            )
         except GitError as exc:
             err_console.print("[red]Não foi possível ler o histórico Git:[/]", txt(exc))
             raise typer.Exit(2) from exc
     else:
-        result = scanner.scan_paths(targets)
+        result = scanner.scan_paths(targets, jobs=jobs)
 
     if update_baseline:
         target = baseline or Path(".guardiao-baseline.json")
