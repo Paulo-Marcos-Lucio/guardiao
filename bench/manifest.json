@@ -166,5 +166,65 @@
   "linha": 4,
   "eh_segredo": false,
   "tipo": "exemplo-em-doc"
+ },
+ {
+  "arquivo": "positivos/github_pat_finegrained.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "github-pat-fine-grained"
+ },
+ {
+  "arquivo": "positivos/gitlab.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "gitlab-pat"
+ },
+ {
+  "arquivo": "positivos/npm.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "npm-token"
+ },
+ {
+  "arquivo": "positivos/slack_webhook.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "slack-webhook"
+ },
+ {
+  "arquivo": "positivos/sendgrid.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "sendgrid-api-key"
+ },
+ {
+  "arquivo": "positivos/twilio.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "twilio-api-key"
+ },
+ {
+  "arquivo": "positivos/digitalocean.env",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "digitalocean-token"
+ },
+ {
+  "arquivo": "positivos/huggingface.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "huggingface-token"
+ },
+ {
+  "arquivo": "positivos/mercadopago.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "mercadopago-access-token"
+ },
+ {
+  "arquivo": "positivos/shopify.py",
+  "linha": 1,
+  "eh_segredo": true,
+  "tipo": "shopify-token"
  }
 ]
