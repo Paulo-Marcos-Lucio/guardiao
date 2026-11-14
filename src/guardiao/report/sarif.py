@@ -110,6 +110,9 @@ def to_sarif(result: ScanResult) -> str:
         "ruleset_hash": provenance.ruleset_hash(),
         "artifact_sha256": None,
         "skipped": dict(result.skipped),
+        # Supressão por ORIGEM (placeholder, allowlist, baseline) — ver
+        # `ScanResult.suppressed`. Chaves sempre presentes, mesmas zeradas.
+        "suppressed": dict(result.suppressed),
         "unitsScanned": result.units_scanned,
         # O que a varredura sabidamente NÃO alcançou (ex.: objetos
         # inalcançáveis que um clone não recebe). Sem isso, o Code Scanning

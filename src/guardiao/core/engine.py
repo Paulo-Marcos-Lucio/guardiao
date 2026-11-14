@@ -76,6 +76,13 @@ MOTIVOS_DE_PULO: tuple[str, ...] = (
     "fora-da-raiz",
 )
 
+#: Origens de SUPRESSÃO: um achado que CASOU uma regra e foi descartado antes de virar
+#: `Finding`. Mesma razão de existir que `MOTIVOS_DE_PULO` — "descartei por X" e "não
+#: achou nada" precisam ser distinguíveis, senão a supressão é silenciosa. `baseline` é
+#: preenchido por quem chama o `Scanner` (a CLI, depois de aplicar o baseline); o motor
+#: só conhece `placeholder` (valor de exemplo) e `allowlist` (marcador `guardiao:allow`).
+MOTIVOS_DE_SUPRESSAO: tuple[str, ...] = ("placeholder", "allowlist", "baseline")
+
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
 Unit = tuple[str, str, "str | None"]
 
@@ -275,6 +282,13 @@ class ScanResult:
     #: Valores casados por uma regra e descartados como placeholder (auditabilidade
     #: da supressão: sem esse número, o descarte é silencioso).
     placeholders: int = 0
+    #: Supressão por ORIGEM (ver :data:`MOTIVOS_DE_SUPRESSAO`) — chaves sempre presentes,
+    #: mesmas zeradas. Superconjunto de :attr:`placeholders`: existe para somar, num só
+    #: lugar, toda razão pela qual um achado que casou uma regra não chegou a
+    #: :attr:`findings` — hoje placeholder, marcador de allowlist e baseline.
+    suppressed: dict[str, int] = field(
+        default_factory=lambda: dict.fromkeys(MOTIVOS_DE_SUPRESSAO, 0)
+    )
     #: Limites de ALCANCE que a fonte reconhece e declara (ex.: um clone não recebe os
     #: objetos inalcançáveis do repositório de origem). Não é erro e não muda o código
     #: de saída: travar o CI do cliente por um limite conhecido seria pior que declará-lo.
@@ -360,6 +374,7 @@ class Scanner:
                 contadores["linha_longa"] = contadores.get("linha_longa", 0) + 1
                 continue
             if _is_allowlisted(raw_line):
+                contadores["allowlist"] = contadores.get("allowlist", 0) + 1
                 continue
 
             # 1) Coleta todos os matches da linha que sobrevivem aos filtros.
@@ -633,12 +648,17 @@ class Scanner:
             findings.extend(self.scan_text(path, text, commit=commit, contadores=contadores))
         findings.sort(key=lambda f: (-f.severity.rank, f.location.path, f.location.line))
         placeholders = contadores.pop("placeholder", 0)
+        allowlist = contadores.pop("allowlist", 0)
+        suppressed = dict.fromkeys(MOTIVOS_DE_SUPRESSAO, 0)
+        suppressed["placeholder"] = placeholders
+        suppressed["allowlist"] = allowlist
         return ScanResult(
             findings=findings,
             units_scanned=units_scanned,
             duration_s=round(time.perf_counter() - started, 4),
             skipped=contadores,
             placeholders=placeholders,
+            suppressed=suppressed,
             regras_omitidas=self._cobertura_de_ruleset(),
             regras_total=len(self._rules_all),
             entropia_desligada=not self.config.use_entropy,
