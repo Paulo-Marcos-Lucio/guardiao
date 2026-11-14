@@ -155,6 +155,26 @@ _CHAVE_SENSIVEL_CAMEL = (
     "password|passwd|secret[_-]?key|client[_-]?secret|api[_-]?key|apikey"
     "|access[_-]?key|auth[_-]?token|private[_-]?key"
 )
+# Literais de ``Rule.literais`` para toda regra ancorada em `_CHAVE_SENSIVEL`/`_CAMEL`
+# (generic-assignment, dotenv-assignment, dotenv-quoted): o conjunto MÍNIMO de
+# substrings tal que toda alternativa da união contém ao menos uma. `"pass"` sozinho
+# cobre `password`/`passwd`/`passphrase`/`pass` (todas contêm `pass` como substring);
+# `secret[_-]?key` e `client[_-]?secret` contêm `secret` com ou sem o separador opcional
+# `[_-]?`; `api[_-]?key`/`apikey` contêm `api`; `access[_-]?key` contém `access`;
+# `auth[_-]?token` contém `auth`; `private[_-]?key` contém `private`. `pwd` e `senha`
+# não são substring de nenhum dos demais, então ficam à parte.
+_LITERAIS_CHAVE_SENSIVEL: tuple[str, ...] = (
+    "pass",
+    "pwd",
+    "secret",
+    "token",
+    "api",
+    "access",
+    "client",
+    "auth",
+    "private",
+    "senha",
+)
 # Fronteira por caractere alfanumérico (e não `\b`): `\b` não existe entre `_` e letra,
 # então `DB_PASSWORD`, `JWT_SECRET` e `DJANGO_SECRET_KEY` não casavam `\bpassword\b`.
 _ANCORA_CHAVE = (
@@ -252,6 +272,10 @@ _CONFIG_SECRET_PATTERN = (
     r"(?:\s*[:=]\s*|\s*>\s*|[ \t]+)"
     r"""([^\s"'<>;,&\n]{6,200})"""
 )
+# Mesma lógica de `_LITERAIS_CHAVE_SENSIVEL`, para o vocabulário mais amplo de
+# `_CHAVE_CONFIG` — soma `"account"` (de `account[_-]?key`/`accountkey`, ausente de
+# `_CHAVE_SENSIVEL`) ao conjunto mínimo.
+_LITERAIS_CHAVE_CONFIG: tuple[str, ...] = (*_LITERAIS_CHAVE_SENSIVEL, "account")
 # `.pgpass`: linha POSICIONAL `host:porta:db:usuário:senha` — sem palavra-chave, o
 # segredo é o 5º campo. Escopada a `.pgpass` (por isso 4 dois-pontos bastam como forma).
 _PGPASS_PATTERN = r"^[^:\n]+:[^:\n]*:[^:\n]*:[^:\n]*:([^:\n]{4,})[ \t]*$"
@@ -290,6 +314,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-321",
             owasp=_A04,
             recommendation="Chave privada exposta compromete TLS/mTLS/assinaturas. " + _ROTATE,
+            literais=("PRIVATE KEY", "PuTTY-User-Key-File-"),
         ),
         compile_rule(
             "aws-access-key-id",
@@ -300,6 +325,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Chave de acesso AWS. Desative a chave no IAM e gere outra. " + _ROTATE,
+            literais=("AKIA", "ASIA", "AGPA", "AIDA", "AROA", "AIPA", "ANPA", "ANVA"),
         ),
         compile_rule(
             "aws-secret-access-key",
@@ -311,6 +337,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Segredo de acesso AWS. " + _ROTATE,
+            literais=("aws",),
         ),
         compile_rule(
             "github-token",
@@ -321,6 +348,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A07,
             recommendation="Token do GitHub. Revogue em Settings > Developer settings. " + _ROTATE,
+            literais=("ghp_", "gho_", "ghu_", "ghs_", "ghr_"),
         ),
         compile_rule(
             "github-pat-fine-grained",
@@ -331,6 +359,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A07,
             recommendation="Token fine-grained do GitHub. " + _ROTATE,
+            literais=("github_pat_",),
         ),
         compile_rule(
             "openai-api-key",
@@ -351,6 +380,7 @@ def default_rules() -> list[Rule]:
             recommendation="Chave de API da OpenAI (sk-proj-/sk-svcacct-/sk-admin-/sk-…) "
             "autentica chamadas cobradas na conta. Revogue em platform.openai.com > API keys. "
             + _ROTATE,
+            literais=("sk-",),
         ),
         compile_rule(
             "anthropic-api-key",
@@ -364,6 +394,7 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Chave de API da Anthropic (sk-ant-…) autentica chamadas cobradas "
             "na conta. Revogue no console da Anthropic (Settings > API keys). " + _ROTATE,
+            literais=("sk-ant-",),
         ),
         compile_rule(
             "gitlab-pat",
@@ -375,6 +406,7 @@ def default_rules() -> list[Rule]:
             owasp=_A07,
             recommendation="Token de acesso pessoal do GitLab (prefixo glpat-). "
             "Revogue em User Settings > Access Tokens. " + _ROTATE,
+            literais=("glpat-",),
         ),
         compile_rule(
             "npm-token",
@@ -386,6 +418,7 @@ def default_rules() -> list[Rule]:
             owasp=_A03,
             recommendation="Token de acesso do npm (prefixo npm_) permite publicar pacotes — "
             "risco de supply chain. Revogue em npmjs.com > Access Tokens. " + _ROTATE,
+            literais=("npm_",),
         ),
         compile_rule(
             "google-api-key",
@@ -397,6 +430,7 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Chave de API do Google. Restrinja/rotacione no Cloud Console. "
             + _ROTATE,
+            literais=("AIza",),
         ),
         compile_rule(
             "slack-token",
@@ -407,6 +441,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Token do Slack. " + _ROTATE,
+            literais=("xox",),
         ),
         compile_rule(
             "slack-webhook",
@@ -417,6 +452,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-200",
             owasp=_A01,
             recommendation="Webhook do Slack permite postar como o app. " + _ROTATE,
+            literais=("hooks.slack.com/services/",),
         ),
         compile_rule(
             "sendgrid-api-key",
@@ -428,6 +464,7 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Chave de API do SendGrid (prefixo SG.) permite enviar e-mail em seu "
             "domínio — risco de phishing/spoofing. Revogue no painel do SendGrid. " + _ROTATE,
+            literais=("SG.",),
         ),
         compile_rule(
             "twilio-api-key",
@@ -440,6 +477,7 @@ def default_rules() -> list[Rule]:
             recommendation="API Key SID do Twilio (SK + 32 hex) autentica envio de SMS/voz e "
             "gera custo na conta. Revogue no Console do Twilio (Account > API keys & tokens). "
             + _ROTATE,
+            literais=("SK",),
         ),
         compile_rule(
             "digitalocean-token",
@@ -452,6 +490,7 @@ def default_rules() -> list[Rule]:
             recommendation="Token de acesso da DigitalOcean (dop_/doo_/dor_v1_) dá acesso de "
             "API à infraestrutura (droplets, DNS, storage, faturamento). Revogue em API > Tokens. "
             + _ROTATE,
+            literais=("dop_v1_", "doo_v1_", "dor_v1_"),
         ),
         compile_rule(
             "huggingface-token",
@@ -464,6 +503,7 @@ def default_rules() -> list[Rule]:
             recommendation="Token de acesso do Hugging Face (prefixo hf_). Um token de escrita "
             "pode publicar em repositórios de modelos/datasets — risco de supply chain de ML. "
             "Revogue em Settings > Access Tokens. " + _ROTATE,
+            literais=("hf_",),
         ),
         compile_rule(
             "mercadopago-access-token",
@@ -476,6 +516,7 @@ def default_rules() -> list[Rule]:
             recommendation="Access token de produção do Mercado Pago (APP_USR-...) dá acesso "
             "de backend à conta de pagamentos. Revogue e gere outro no painel de credenciais "
             "(Suas integrações). " + _ROTATE,
+            literais=("APP_USR-",),
         ),
         compile_rule(
             "stripe-secret-key",
@@ -487,6 +528,7 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Chave secreta de produção da Stripe. Roll da chave no dashboard. "
             + _ROTATE,
+            literais=("sk_live_", "rk_live_"),
         ),
         compile_rule(
             "shopify-token",
@@ -500,6 +542,7 @@ def default_rules() -> list[Rule]:
             "shpss_ = shared secret) dá acesso à Admin API da loja — pedidos, clientes e "
             "dados sensíveis. Desinstale/reinstale o app na loja ou gire o segredo no "
             "Partner Dashboard. " + _ROTATE,
+            literais=("shp",),
         ),
         compile_rule(
             "doppler-token",
@@ -513,6 +556,7 @@ def default_rules() -> list[Rule]:
             "segredos: dá acesso a TODOS os segredos das configs a que o usuário tem acesso. "
             "Revogue em Dashboard > Tokens e trate os segredos expostos como comprometidos. "
             + _ROTATE,
+            literais=("dp.pt.",),
         ),
         compile_rule(
             "linear-api-key",
@@ -525,6 +569,7 @@ def default_rules() -> list[Rule]:
             recommendation="Chave de API pessoal do Linear (lin_api_) autentica na API do "
             "workspace — issues, projetos e roadmap. Revogue em Settings > Security & access "
             "> API. " + _ROTATE,
+            literais=("lin_api_",),
         ),
         compile_rule(
             "jwt",
@@ -536,6 +581,7 @@ def default_rules() -> list[Rule]:
             owasp=_A07,
             recommendation="JWT no código. Se for de sessão/serviço, invalide-o. "
             "Confirme se não carrega dados sensíveis no payload (é apenas base64, não é cifrado).",
+            literais=("eyJ",),
         ),
         compile_rule(
             "db-connection-uri",
@@ -567,6 +613,9 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="String de conexão com usuário e senha embutidos. " + _ROTATE,
+            # `@` separa credencial de host nas duas alternativas (URI com `://` e a
+            # forma THIN do Oracle, que não tem `://`) — é o único literal comum às duas.
+            literais=("@",),
         ),
         compile_rule(
             "connection-string-password",
@@ -585,6 +634,7 @@ def default_rules() -> list[Rule]:
             recommendation="Senha/chave embutida numa connection string (Password=/Pwd=/"
             "AccountKey=). Mova para um cofre de segredos e injete por variável de ambiente. "
             + _ROTATE,
+            literais=("password", "pwd", "accountkey"),
         ),
         compile_rule(
             "basic-auth-url",
@@ -596,6 +646,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-522",
             owasp=_A07,
             recommendation="Usuário:senha embutidos na URL vazam em logs e histórico. " + _ROTATE,
+            literais=("://",),
         ),
         compile_rule(
             "generic-assignment",
@@ -608,6 +659,7 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Valor de aparência secreta atribuído a uma chave sensível. " + _ROTATE,
+            literais=_LITERAIS_CHAVE_SENSIVEL,
         ),
         # Segredo de alta entropia embutido num SEGMENTO de path/URL (`/_internal/<32c>/…`).
         # A regra genérica de entropia diluía o token no `/` e o keyword-gate cegava a
@@ -630,6 +682,9 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Token aleatório embutido num caminho/URL (vaza em logs, "
             "referrer e histórico do navegador). " + _ROTATE,
+            # A `/` que abre o segmento está DENTRO do match (group 0): é o delimitador
+            # da própria regra, não um literal de contexto — mas é necessário por construção.
+            literais=("/",),
         ),
         compile_rule(
             "dotenv-assignment",
@@ -644,6 +699,7 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Credencial em texto claro num arquivo de ambiente versionado. "
             "Tire o arquivo do controle de versão (.gitignore). " + _ROTATE,
+            literais=_LITERAIS_CHAVE_SENSIVEL,
         ),
         compile_rule(
             "dotenv-quoted",
@@ -658,6 +714,7 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Credencial (inclusive passphrase com espaço) em texto claro num "
             "arquivo de ambiente versionado. Tire o arquivo do controle de versão. " + _ROTATE,
+            literais=_LITERAIS_CHAVE_SENSIVEL,
         ),
         compile_rule(
             "config-file-secret",
@@ -672,6 +729,7 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Credencial em texto claro num arquivo de configuração versionado "
             "(YAML/INI/properties/XML/npmrc/netrc). Mova para um cofre de segredos. " + _ROTATE,
+            literais=_LITERAIS_CHAVE_CONFIG,
         ),
         compile_rule(
             "pgpass-credential",
@@ -685,6 +743,9 @@ def default_rules() -> list[Rule]:
             cwe="CWE-798",
             owasp=_A02,
             recommendation="Senha em texto claro no 5º campo de um .pgpass versionado. " + _ROTATE,
+            # Sem palavra-chave: a forma é POSICIONAL (4 separadores `:` antes da senha).
+            # Único literal confiável por construção é o próprio separador.
+            literais=(":",),
         ),
         compile_rule(
             "high-entropy-string",
@@ -699,6 +760,9 @@ def default_rules() -> list[Rule]:
             owasp=_A02,
             recommendation="Cadeia longa e aleatória com cara de segredo. Confirme se não é "
             "credencial/chave; se for, " + _ROTATE,
+            # Nenhum literal confiável: o valor casado é entropia pura, qualquer cadeia
+            # alfanumérica serve. O portão aqui já é `keywords=SECRET_CONTEXT` (acima).
+            literais=(),
         ),
         compile_rule(
             "cpf",
@@ -712,6 +776,8 @@ def default_rules() -> list[Rule]:
             owasp="A04:2025 / LGPD art. 46",
             recommendation="CPF em texto claro é dado pessoal (LGPD). Remova de logs/código, "
             "minimize e proteja o tratamento; considere anonimização/pseudonimização.",
+            # `.` e `-` são os separadores fixos do formato `000.000.000-00`.
+            literais=(".", "-"),
         ),
         compile_rule(
             "cnpj",
@@ -724,6 +790,8 @@ def default_rules() -> list[Rule]:
             cwe="CWE-359",
             owasp="A04:2025 / LGPD",
             recommendation="CNPJ em texto claro. Avalie se precisa estar versionado no repositório.",
+            # `.`, `/` e `-` são os separadores fixos do formato `00.000.000/0000-00`.
+            literais=(".", "/", "-"),
         ),
     ]
 

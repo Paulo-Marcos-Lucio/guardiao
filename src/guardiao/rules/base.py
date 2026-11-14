@@ -58,6 +58,17 @@ class Rule:
     #: valor de exemplo por INTEIRO (:func:`is_obvious_fake`) — nunca por uma substring
     #: (``todo``/``mock``) perdida no meio de um token real (classe FN-P0).
     heuristica: bool = False
+    #: CONDIÇÃO NECESSÁRIA (não suficiente) para a regex casar: toda vez que ``regex``
+    #: produz um match, pelo menos um destes literais está contido (sem diferenciar
+    #: maiúscula/minúscula) no texto casado. Não é extraído automaticamente da regex —
+    #: é declarado à mão por quem escreve a regra, porque é quem sabe qual trecho é
+    #: fixo (``"AKIA"``, ``"ghp_"``, a palavra ``"secret"``…) e qual é a parte variável
+    #: (o segredo em si). Tupla vazia = nenhum literal confiável existe (ex.: entropia
+    #: pura, onde o valor casado pode ser qualquer cadeia alfanumérica) — a regra segue
+    #: sem pré-filtro de literal, e outro filtro (``keywords``) cobre o caso.
+    #: Consumido pelo motor como um portão BARATO antes de rodar a regex em si: uma
+    #: linha sem nenhum dos literais não pode casar, e a regex cara nem precisa rodar.
+    literais: tuple[str, ...] = field(default_factory=tuple)
 
 
 def compile_rule(
@@ -78,6 +89,7 @@ def compile_rule(
     only_files: tuple[str, ...] = (),
     composto: bool = False,
     heuristica: bool = False,
+    literais: tuple[str, ...] = (),
 ) -> Rule:
     return Rule(
         id=id,
@@ -95,4 +107,5 @@ def compile_rule(
         only_files=only_files,
         composto=composto,
         heuristica=heuristica,
+        literais=literais,
     )
