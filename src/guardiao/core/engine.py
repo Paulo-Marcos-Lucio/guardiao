@@ -23,6 +23,7 @@ from guardiao.rules.definitions import (
     is_probable_hash_or_id,
     linha_tem_hash_cripto,
     looks_like_secret_token,
+    parece_identificador_de_codigo,
     placeholder_domina,
     segmento_e_recurso_publico,
     tem_letra_nao_ascii,
@@ -74,7 +75,30 @@ MOTIVOS_DE_PULO: tuple[str, ...] = (
     "binario",
     "linha_longa",
     "fora-da-raiz",
+    "identificador",
 )
+
+#: Entre os motivos de `skipped`, o único que NÃO é conteúdo nunca visto: um identificador
+#: de código FOI lido e casou um padrão candidato — o classificador de posição só decidiu
+#: que o candidato não é segredo. `total_pulado()` (e o tique verde do console) tratam de
+#: "o que a varredura não chegou a olhar"; aqui é o oposto, por isso fica de fora da soma
+#: — senão todo `def foo_private_key_file(x):` comum rebaixaria um scan COMPLETO para
+#: "limpo só no que foi analisado", quando ele analisou tudo e decidiu certo.
+_MOTIVOS_DE_CANDIDATO_DESCARTADO: frozenset[str] = frozenset({"identificador"})
+
+#: Regras em que o classificador de posição (:func:`parece_identificador_de_codigo`) age
+#: como GATE, antes de qualquer validador/heurística de entropia: as duas famílias em que
+#: um identificador de código legível (`cert_encrypted_private_key_file`) é facilmente
+#: confundido com segredo aleatório pela corrida de consoantes/entropia por-alfabeto.
+_RULES_COM_GATE_DE_IDENTIFICADOR = frozenset({"generic-assignment"})
+
+
+def _e_gated_por_identificador(rule: Rule, secret: str) -> bool:
+    """O classificador de posição suprime este candidato, e o pulo deve ser contado?"""
+    if rule.category != "entropy" and rule.id not in _RULES_COM_GATE_DE_IDENTIFICADOR:
+        return False
+    return parece_identificador_de_codigo(secret)
+
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
 Unit = tuple[str, str, "str | None"]
@@ -313,7 +337,9 @@ class ScanResult:
         return max((f.severity for f in self.findings), key=lambda s: s.rank)
 
     def total_pulado(self) -> int:
-        return sum(self.skipped.values())
+        """Soma só o conteúdo que a varredura NUNCA chegou a olhar — exclui o candidato
+        analisado e corretamente descartado (:data:`_MOTIVOS_DE_CANDIDATO_DESCARTADO`)."""
+        return sum(v for k, v in self.skipped.items() if k not in _MOTIVOS_DE_CANDIDATO_DESCARTADO)
 
 
 class Scanner:
@@ -399,6 +425,14 @@ class Scanner:
                         # substring (`todo`/`mock`) perdida num segredo real (FN-P0).
                         contadores["placeholder"] = contadores.get("placeholder", 0) + 1
                         continue
+                    if _e_gated_por_identificador(rule, secret):
+                        # Classificador de posição: identificador de código legível
+                        # (`cert_encrypted_private_key_file`) não é segredo aleatório, nas
+                        # duas famílias que a corrida de consoantes/entropia confundia.
+                        # Contado para que "olhei e é identificador" fique auditável, em
+                        # vez de desaparecer dentro de "nenhum achado" (POLITICA.md).
+                        contadores["identificador"] = contadores.get("identificador", 0) + 1
+                        continue
                     if rule.validator is not None and not rule.validator(secret):
                         continue
                     entropy = shannon_entropy(secret)
@@ -448,7 +482,7 @@ class Scanner:
             if "+" in raw_line and _CONCAT_LITERAIS_RE.search(raw_line):
                 juntada = _CONCAT_LITERAIS_RE.sub("", raw_line)
                 yield from self._hits_de_concatenacao(
-                    rules, path, juntada, raw_line, lineno, commit
+                    rules, path, juntada, raw_line, lineno, commit, contadores
                 )
 
             # Chave privada PEM escondida sob base64 (`{"payload":"LS0tLS1CRUdJTi…"}`):
@@ -500,6 +534,7 @@ class Scanner:
         original: str,
         lineno: int,
         commit: str | None,
+        contadores: dict[str, int],
     ) -> Iterator[Finding]:
         """Achados de FORMATO no valor reconstruído de uma concatenação de literais.
 
@@ -518,6 +553,9 @@ class Scanner:
                 if secret is None or secret in original:
                     continue
                 if _placeholder_suprime(rule, secret):
+                    continue
+                if _e_gated_por_identificador(rule, secret):
+                    contadores["identificador"] = contadores.get("identificador", 0) + 1
                     continue
                 if rule.validator is not None and not rule.validator(secret):
                     continue

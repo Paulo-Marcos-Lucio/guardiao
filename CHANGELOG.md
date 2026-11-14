@@ -47,6 +47,22 @@ Bateria empírica de causa-raiz, cada item travado por invariante property-based
   FOI ANALISADO"** quando o catálogo é parcial. "Não rodei essa regra" e "rodei e passou" deixam de ser a
   mesma saída.
 
+### Corrigido — identificador de código confundido com segredo na `generic-assignment` (G-01c)
+
+- **Classificador de posição ligado também no gate da `generic-assignment`.** `parece_identificador_de_codigo`
+  (ex-`_parece_identificador_de_codigo`, agora pública) já impedia que um identificador legível
+  (`cert_encrypted_private_key_file`) virasse achado do lado da entropia (`looks_like_secret_token`); faltava
+  o mesmo gate do lado do piso multi-sinal da genérica (`looks_like_secret_value`), e
+  `cert_encrypted_private_key = "cert_encrypted_private_key_file"` virava achado só porque `encrypted` tem
+  corrida de 6 consoantes. Testado com Hypothesis (`test_identificador_de_codigo_nunca_e_segredo_na_generic_assignment`),
+  espelhando a invariante que já cobria a entropia.
+- **Pulo auditável: `skipped.identificador`.** As duas famílias (entropia + `generic-assignment`) passam
+  agora por um gate único no motor que CONTA o candidato suprimido, em vez de descartá-lo em silêncio — a
+  mesma doutrina de `placeholders_discarded`. Aparece em `summary.skipped.identificador` (JSON) e
+  `properties.skipped` (SARIF). Como o candidato FOI analisado (não é conteúdo nunca visto), ele fica de fora
+  de `ScanResult.total_pulado()` — um identificador comum de qualquer código real não rebaixa o tique verde de
+  "varredura completa" para "limpo só no que foi analisado".
+
 ## [0.5.0] — 2026-08-05
 
 ### Corrigido — calibração anti-falso-positivo (medição de campo 2026-08-05)
