@@ -6,6 +6,20 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ## [Não lançado]
 
+### Alterado
+
+- **`parece_identificador` passa a ser público** (antes `_parece_identificador_de_codigo`, em
+  `rules/definitions.py`): a heurística de Camada B que reconhece identificador de código
+  (snake_case, kebab-case, camelCase de palavras legíveis — `cert_encrypted_private_key_file`,
+  `accessTokenValue`) e nunca o confunde com segredo gerado por CSPRNG
+  (`secrets.token_urlsafe`). Comportamento inalterado; só o nome deixou de ter `_` inicial, para
+  ficar testável e importável como API do módulo. Dois property-based novos em
+  `tests/test_propriedades.py` generalizam os dois exemplos do relatório original (o campo real,
+  o token aleatório) para a CLASSE inteira — snake/kebab/camelCase com 2+ palavras sempre
+  reconhecido; token de `secrets.token_urlsafe` de 16 a 64 bytes nunca confundido com
+  identificador —, e um teste direto em `tests/test_rules.py` fixa os dois casos originais do
+  critério de aceite.
+
 ### Adicionado — detecção (auditoria adversarial de 2026-09-08)
 
 Bateria empírica de causa-raiz, cada item travado por invariante property-based:
