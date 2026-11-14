@@ -3,8 +3,11 @@ from __future__ import annotations
 import inspect
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from guardiao import __version__
@@ -98,6 +101,23 @@ def test_diretorio_so_com_lockfiles_sai_zero(tmp_path: Path) -> None:
     result = runner.invoke(app, ["scan", str(tmp_path)])
     assert result.exit_code == 0
     assert "NÃO analisada" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git não disponível")
+def test_ignorar_gitignore_via_cli(tmp_path: Path) -> None:
+    """`--ignorar-gitignore` tem de chegar até a `Config` passando pela CLI, não só
+    pela API Python — sem o teste de ponta a ponta, só o `Scanner` direto provaria."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True, capture_output=True)
+    (repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    (repo / "debug.log").write_text(f"token leaked: {AWS_KEY_ID}\n", encoding="utf-8")
+
+    pulado = runner.invoke(app, ["scan", str(repo), "-f", "json"])
+    assert json.loads(pulado.stdout)["summary"]["total"] == 0
+
+    varrido = runner.invoke(app, ["scan", str(repo), "--ignorar-gitignore", "-f", "json"])
+    assert json.loads(varrido.stdout)["summary"]["total"] > 0
 
 
 def test_max_file_size_recupera_arquivo_grande(tmp_path: Path) -> None:
