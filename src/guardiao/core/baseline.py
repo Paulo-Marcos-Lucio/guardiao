@@ -21,6 +21,17 @@ from guardiao.core.redaction import redact_publicado
 BASELINE_VERSION = 1
 
 
+class ConfigInvalida(Exception):
+    """O arquivo de baseline não pôde ser interpretado como tal.
+
+    Cobre tanto o arquivo ilegível (ausente, não-UTF-8, JSON malformado) quanto o
+    JSON válido na forma errada (não é um objeto, ou falta/deturpa a chave
+    ``findings``). Em qualquer um desses casos a resposta tem de ser falhar alto —
+    nunca degradar para um baseline vazio em silêncio, que suprimiria achado novo
+    por engano ao tratar "não consegui ler" como "nada aceito ainda".
+    """
+
+
 @dataclass(frozen=True)
 class Baseline:
     fingerprints: frozenset[str]
@@ -68,10 +79,20 @@ def save_baseline(path: Path, findings: list[Finding]) -> None:
 
 
 def load_baseline(path: Path) -> Baseline:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    findings = data.get("findings", {})
-    if not isinstance(findings, dict):  # pragma: no cover - arquivo corrompido
-        raise ValueError("baseline inválido: 'findings' deve ser um objeto")
+    """Carrega o baseline do disco — ou levanta :class:`ConfigInvalida`.
+
+    Nunca deixa passar um baseline vazio como substituto silencioso de um arquivo
+    que não pôde ser lido: arquivo ausente, não-UTF-8, JSON malformado, JSON que não
+    é um objeto, ou objeto sem a chave ``findings`` (ou com ela no tipo errado) — tudo
+    isso é a MESMA classe de defeito (config corrompido) e tem a MESMA resposta.
+    """
+    try:
+        documento = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ConfigInvalida(f"baseline inválido em {path}: {exc}") from exc
+    findings = documento.get("findings") if isinstance(documento, dict) else None
+    if not isinstance(findings, dict):
+        raise ConfigInvalida("baseline inválido: 'findings' deve ser um objeto")
     return Baseline(fingerprints=frozenset(findings.keys()))
 
 
