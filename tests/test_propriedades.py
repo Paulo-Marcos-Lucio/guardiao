@@ -15,7 +15,9 @@ import base64
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from guardiao.core.config import Config
 from guardiao.core.engine import Scanner
+from guardiao.core.models import Severity
 from guardiao.rules.definitions import looks_like_secret_token
 from guardiao.sources.files import decode_text_bytes
 
@@ -163,3 +165,55 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+_SEGMENTOS_NEUTROS = ["app", "src", "lib", "pkg", "internal", "modulo"]
+
+
+@settings(max_examples=200)
+@given(
+    tem_pasta_docs=st.booleans(),
+    outros=st.lists(st.sampled_from(_SEGMENTOS_NEUTROS), min_size=0, max_size=3),
+    sufixo=st.sampled_from([".rst", ".RST", ".Rst", ".py", ".md", ".txt"]),
+)
+def test_is_doc_path_exige_pasta_docs_e_sufixo_rst(
+    tem_pasta_docs: bool, outros: list[str], sufixo: str
+) -> None:
+    """INVARIANTE 7 (G-02d): `is_doc_path()` só é verdade com a combinação das DUAS
+    condições — alguma pasta `docs/` no caminho E sufixo `.rst` (caixa-insensível).
+    Falta uma das duas, não é doc: sufixo errado numa pasta `docs/`, ou `.rst` fora
+    de `docs/`, continuam no rigor normal.
+    """
+    partes = list(outros)
+    if tem_pasta_docs:
+        partes.insert(0, "docs")
+    caminho = "/".join([*partes, f"arquivo{sufixo}"])
+    esperado = tem_pasta_docs and sufixo.lower() == ".rst"
+    assert Config().is_doc_path(caminho) is esperado, caminho
+
+
+@settings(max_examples=200)
+@given(
+    prefixo=st.lists(
+        st.sampled_from([*_SEGMENTOS_NEUTROS, "docs", "tests"]), min_size=0, max_size=3
+    ),
+    sufixo=st.sampled_from([".py", ".rst", ".md", ".txt"]),
+    token=st.text(
+        alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+        min_size=36,
+        max_size=36,
+    ),
+)
+def test_regra_de_formato_nunca_rebaixa_por_caminho(
+    prefixo: list[str], sufixo: str, token: str
+) -> None:
+    """INVARIANTE 8 (G-02d): um achado de regra de FORMATO (forma validada pela própria
+    regex, ex. `ghp_…`) tem severidade fixa em QUALQUER caminho. `docs/*.rst` e `tests/`
+    são sinal suave só para achados HEURÍSTICOS (generic-assignment, high-entropy) — nunca
+    para token de fornecedor ou chave privada, mesmo quando o caminho combina as duas
+    pastas de sinal suave.
+    """
+    caminho = "/".join([*prefixo, f"arquivo{sufixo}"])
+    linha = f'token = "ghp_{token}"'
+    achado = next(f for f in Scanner().scan_text(caminho, linha) if f.rule_id == "github-token")
+    assert achado.severity is Severity.HIGH, caminho
