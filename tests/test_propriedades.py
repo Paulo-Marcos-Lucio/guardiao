@@ -163,3 +163,36 @@ def test_url_de_fixture_de_parser_nao_e_vazamento(
         if a.rule_id == "basic-auth-url"
     ]
     assert achados == [], f"URL de fixture {url!r} virou achado basic-auth-url"
+
+
+@settings(max_examples=200)
+@given(
+    esquema=st.sampled_from(["http", "https"]),
+    user=st.sampled_from(["foo", "a", "svc"]),
+    bytes_pw=st.lists(st.integers(min_value=0, max_value=255), min_size=2, max_size=8),
+    host=st.sampled_from(["host", "painel.acme.com.br", "api.minhaempresa.io"]),
+)
+def test_senha_percent_encoded_contra_host_de_dominio_nao_e_vazamento(
+    esquema: str, user: str, bytes_pw: list[int], host: str
+) -> None:
+    """INVARIANTE 7 (G02b): senha percent-encoded dentro de URL Basic-Auth nunca vira
+    achado `basic-auth-url`, mesmo contra host de FORMA de domínio (não só o host
+    degenerado da INVARIANTE 6, que fica curto demais para o gatilho desta classe).
+
+    CAUSA-RAIZ: `%F0%9F%92%A9` (emoji URL-encoded) soma 3 classes de caractere
+    (dígito + MAIÚSCULA + `%`) e passava pelo ramo "senha parece real" de
+    `_pw_looks_real`, mesmo sendo dado de URL-encoding — não um segredo. Achado
+    rodando o corpus de conformidade real do WHATWG (`tests/models/whatwg.json`):
+    `http://foo:%F0%9F%92%A9@example.com/bar` e `http://a:%F0%9F%98%80x@host/`. Este
+    teste generaliza os 2 exemplos para QUALQUER sequência de bytes percent-encoded,
+    como `_predominantemente_url_encoded` já fazia para `looks_like_secret_value`
+    (G02c) — mesma classe, dois lugares no código.
+    """
+    pw = "".join(f"%{b:02X}" for b in bytes_pw)
+    url = f"{esquema}://{user}:{pw}@{host}/path"
+    achados = [
+        a
+        for a in Scanner().scan_text("teste.py", f'url = "{url}"\n')
+        if a.rule_id == "basic-auth-url"
+    ]
+    assert achados == [], f"URL com senha percent-encoded {url!r} virou achado basic-auth-url"
