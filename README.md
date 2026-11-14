@@ -16,7 +16,7 @@
 [![Ruff lint](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-ruff.svg)](https://github.com/astral-sh/ruff)
 [![Checked with mypy](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-mypy.svg)](https://mypy-lang.org/)
 [![OWASP Top 10:2025](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-owasp.svg)](https://owasp.org/Top10/)
-[![297 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
+[![303 tests passing](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-tests.svg)](#-qualidade-de-engenharia--método)
 [![95% coverage](https://raw.githubusercontent.com/Paulo-Marcos-Lucio/guardiao/main/assets/chip-coverage.svg)](#-qualidade-de-engenharia--método)
 
 </div>
@@ -114,7 +114,7 @@ Cada achado traz **severidade**, **evidência ocultada**, **recomendação** (co
 - **Entropia com correção de viés.** O estimador de Shannon é enviesado para baixo em cadeias curtas (ele não pode passar de `log2(n)`), então comparar a um limiar fixo em bits/char cria falso-negativo dependente do comprimento. O critério usa **Miller-Madow** contra uma fração do máximo teórico do alfabeto do token. Medido em 5.992 segredos aleatórios × 12.206 cadeias reais extraídas de código: recall **85,3% → 94,9%** e falso-positivo **282 → 239** — ganha nos dois eixos.
 - **Contexto obrigatório.** A regra de entropia só dispara perto de `token`/`secret`/`key`/`password`… — inclusive em `DB_PASSWORD` e `accessToken`, que a fronteira `\b` não cobre.
 - **Contexto negativo.** Entropia **não** distingue hash de segredo (são matematicamente idênticos). Se a linha fala em `md5`/`etag`/`integrity`/`checksum`, o achado é descartado.
-- **Dígito verificador** em CPF/CNPJ (módulo 11): `000.000.000-00` não é dado pessoal.
+- **Dígito verificador** em CPF/CNPJ (módulo 11): `000.000.000-00` não é dado pessoal. Cobre o **CNPJ alfanumérico** (`AA.AAA.AAA/AAAA-DD`, vigente desde 31/07/2026) e o numérico com a mesma conta — para dígito, letra A-Z e dígito dão o mesmo valor.
 - **Filtro de placeholder por natureza da regra.** Um marcador (`todo`/`mock`/`example`) só suprime quando **domina** o valor numa regra heurística; numa regra de **formato/fornecedor** (a regex já travou a forma) só um valor de exemplo por **inteiro** (`AKIAIOSFODNN7EXAMPLE`) barra. Assim um `ghp_todo…`/`sk_live_…abcdefgh…` real deixou de sumir por conter 4-8 letras de um exemplo. O relatório **informa quantos** valores foram descartados — a supressão é auditável, não silenciosa.
 - **Segmento de recurso público não é segredo.** Um token de alta entropia que é, na verdade, peça estrutural de um recurso **público** — slug em host de CDN/asset/doc (`images.*`, `*cdn*`, `docs.aws.amazon.com`), identificador de recurso cloud (`arn:aws:`, política gerenciada AWS, `ssoins-`+hex) ou endereço de hardware (WWID/WWN após `/dev/mapper`) — é reconhecido pela **forma** antes de ser pontuado por entropia. Sem cegar fornecedor: um `AKIA…`/`ghp_…` no mesmo caminho continua disparando.
 - **Corrida de consoantes com refutação.** A sequência de consoantes que sinaliza aleatoriedade é **refutada** quando outro sinal a desmente — um caractere que domina o valor (`AQBQyyyy…`) ou entropia de Shannon real baixíssima não é segredo, e um vocabulário técnico com `/`, `-`, `_` ou dígito (`aes256gcm`, um MIME type) escapa do gate.
@@ -127,7 +127,6 @@ Honestidade primeiro — o que esta ferramenta **não** faz:
 
 - **Não valida a credencial.** Um `sk_live_` já revogado é reportado igual a um ativo.
 - **Contexto negativo é heurística.** Um segredo numa linha que também contenha `checksum` ou `commit` é descartado junto com os hashes.
-- **CNPJ alfanumérico** (formato novo da Receita, `AA.AAA.AAA/AAAA-DD`) **não** é detectado — só o numérico.
 - **Segredo multilinha em texto cru** (corpo de chave privada, JSON de service account espalhado por várias linhas) é detectado pelo **cabeçalho**, não pelo corpo: a varredura é linha a linha. *(Já uma chave privada inteira embrulhada em base64 numa única linha — `{"payload":"LS0tLS1CRUdJTi…"}` — é decodificada e detectada.)*
 - **Não reescreve histórico.** Achar é metade; `git filter-repo` e a rotação são trabalho separado.
 - **O que é pulado aparece no relatório** (`summary.skipped`): **diretório inteiro excluído** (`vendor/`, `dist/`, `node_modules/`, virtualenv), lockfile, binário, arquivo acima de `--max-file-size` e linha acima de `--max-line-length`. "Não olhei" e "olhei e está limpo" são saídas visualmente distintas.
@@ -395,7 +394,7 @@ Princípios de projeto:
 
 ## 🔬 Qualidade de engenharia & método
 
-**Portões (medidos neste repo em 2026-09-15, não copiados):** 297 testes (1 skip), incluindo *property-based* (Hypothesis) que afirmam invariantes de classe · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (23 arquivos) · `ruff` lint + format limpo (64 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
+**Portões (medidos neste repo em 2026-10-13, não copiados):** 303 testes (1 skip), incluindo *property-based* (Hypothesis) que afirmam invariantes de classe · cobertura **95%** (`--cov-fail-under=90`, gate fixado *abaixo* do medido para ser anti-regressão, não vaidade) · `mypy --strict` limpo (23 arquivos) · `ruff` lint + format limpo (67 arquivos) · CI em matriz **Python 3.10 / 3.11 / 3.12 / 3.13**.
 
 **Teste que morde a mão que o desfaz.** A calibração anti-falso-positivo vive sob guarda: `test_fp_fixes_preserve_recall` (`tests/test_review_fixes.py`) fica **vermelho** se um filtro de precisão voltar a engolir um segredo real — reafirma que AWS, `ghp_`, entropia e chave privada continuam disparando. E `test_toda_regra_do_catalogo_tem_caso_positivo` reprova o CI se uma regra nova nascer sem caso positivo: "regra sem teste" e "regra que nunca casa nada" passam a ser indistinguíveis — e barradas. Dogfooding: `test_source_tree_is_clean` varre o próprio `src/`.
 
