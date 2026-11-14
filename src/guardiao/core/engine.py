@@ -119,9 +119,6 @@ def _placeholder_suprime(rule: Rule, secret: str) -> bool:
 #: `"x" + var` — que juntaria texto não-secreto.
 _CONCAT_LITERAIS_RE = re.compile(r"""["']\s*\+\s*["']""")
 
-#: Alfabeto base64/base64url (sem o `/`, tratado à parte como possível delimitador).
-_B64URL_SEM_BARRA = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+=_-")
-
 #: Alfabeto base64 padrão INCLUINDO `/` — para medir o comprimento de um blob contíguo.
 _B64_COM_BARRA = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
 
@@ -137,19 +134,24 @@ def _e_letra_nao_ascii(c: str) -> bool:
 def _barra_interna_base64(raw_line: str, start: int) -> bool:
     """A `/` em ``raw_line[start-1]`` é interna a um base64 entre aspas, não um path?
 
-    Varre à esquerda sobre o segmento base64url anterior à `/`. Se a fronteira desse
-    segmento for uma **aspa** (`"`/`'`), o `/` está dentro de um valor citado
-    (``opaque="FQhe/qaU…"``) — não é delimitador de caminho. Se for `/`, espaço ou o
-    início da linha, é um path de verdade (``/_internal/<seg>/…``, o cenário do F-007),
-    e a checagem devolve ``False`` para não cegar o achado legítimo.
+    Varre à esquerda sobre o BLOB base64 anterior à `/` — com o alfabeto COM barra
+    (:data:`_B64_COM_BARRA`), de propósito: um blob citado pode ter MAIS de uma `/`
+    (``opaque="FQhe/qa/U…"``), e cada `/` interna é ela mesma um candidato a
+    delimitador para o regex de `secret-in-path`. Varrer só até a `/` anterior (o
+    alfabeto SEM barra usado antes) achava a fronteira errada nesses casos — a classe
+    que a Onda G-01d destravou com um teste property-based (qualquer payload base64
+    gerado por :func:`base64.b64encode`, que tem ~1/64 de chance de `/` por caractere,
+    expõe tanto o caso de uma `/` quanto o de várias). Se a fronteira do blob for uma
+    **aspa** (`"`/`'`), a `/` está dentro de um valor citado — não é delimitador de
+    caminho. Se for espaço/outro símbolo ou o início da linha, devolve ``False`` para
+    não cegar o path real (``/_internal/<seg>/…``, o cenário do F-007 — que usa o
+    alfabeto base64url, com `-`/`_`, e por isso nunca entra no alfabeto COM barra daqui).
     """
     i = start - 2
-    vistos = 0
-    while i >= 0 and raw_line[i] in _B64URL_SEM_BARRA:
+    while i >= 0 and raw_line[i] in _B64_COM_BARRA:
         i -= 1
-        vistos += 1
-    if vistos == 0 or i < 0:
-        return False  # `/` logo após não-base64, ou segmento cola no início: path limpo
+    if i < 0:
+        return False  # segmento cola no início da linha: sem fronteira para checar
     return raw_line[i] in "\"'"
 
 

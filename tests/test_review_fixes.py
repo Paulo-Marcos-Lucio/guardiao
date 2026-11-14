@@ -331,6 +331,20 @@ def test_secret_in_path_e_imune_ao_rebaixe_de_teste() -> None:
     assert sip and sip[0].severity is Severity.MEDIUM
 
 
+# MED — G-01d: o `opaque=` do RFC 7616 (Digest Auth) é um BLOB base64 FECHADO ENTRE
+# ASPAS — a barra interna (`FQhe/qaU…`) não é delimitador de segmento de path. Dois
+# estágios no motor resolvem a classe: aspa como fronteira do segmento anterior
+# (`_barra_interna_base64`) e corrida longa de base64-com-barra sem aspas
+# (`_barra_interna_de_blob`, cobre DKIM/chave pública — já testado em
+# test_cruzada_fp_2026_08.py::test_dkim_public_key_blob_longo_nao_gera_secret_in_path).
+def test_secret_in_path_nao_flagra_opaque_do_digest_auth() -> None:
+    linha = 'WWW-Authenticate: Digest realm="api", nonce="abc", opaque="FQhe/qaU+ngk9kqB8xAlRA=="'
+    assert "secret-in-path" not in _ids(linha)
+    # a supressão é do BLOB entre aspas, não da regra inteira: o F-007 (path real, sem
+    # aspas) continua achado na MESMA linha.
+    assert "secret-in-path" in _ids(f'{linha}\nurl = "{_F007}"')
+
+
 # ALTO — db-connection-uri aceita o sufixo +driver do SQLAlchemy (postgresql+psycopg://).
 def test_db_uri_com_driver_sqlalchemy_e_detectada() -> None:
     line = 'URL = "postgresql+psycopg://postgres:Zx9r2Pq8LmNv3Kd@prod-db.acme.com:5432/main"'
