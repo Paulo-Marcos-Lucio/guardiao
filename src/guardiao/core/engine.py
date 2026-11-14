@@ -74,6 +74,7 @@ MOTIVOS_DE_PULO: tuple[str, ...] = (
     "binario",
     "linha_longa",
     "fora-da-raiz",
+    "allowlist",
 )
 
 #: Uma unidade de varredura: (caminho, conteúdo, commit de origem ou None).
@@ -688,11 +689,16 @@ def _file_units(
         raiz = Path(raw)
         ancora = _ancora_de_relativizacao(raiz)
         for file_path in iter_files(raiz, config, skipped):
+            caminho = _caminho_portavel(file_path, ancora)
+            if config.is_allowlisted_path(caminho):
+                # Exclusão explícita de `[allowlist] paths` — nem chega a abrir o arquivo.
+                skipped["allowlist"] = skipped.get("allowlist", 0) + 1
+                continue
             text = read_text(file_path)
             if text is None:
                 skipped["binario"] += 1
                 continue
-            yield (_caminho_portavel(file_path, ancora), text, None)
+            yield (caminho, text, None)
 
 
 def _ancora_de_relativizacao(raiz: Path) -> Path:
